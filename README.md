@@ -1,95 +1,81 @@
-# SYX · Órdenes de Trabajo y Caja
+# SYX | Órdenes de Trabajo — v3: Caja, Historial, Inventario y Estadísticas
 
-**Proyecto independiente:** Firebase `ordenes-trabajo-a8499` · GitHub `agusthebeast/sistema-skorn`.
+**Firebase independiente:** `ordenes-trabajo-a8499`  
+**GitHub:** `agusthebeast/sistema-skorn`  
+**Sitio esperado:** `https://ordenes-trabajo-a8499.web.app`
 
-Paquete actualizado: 28 de octubre de 2026. No utiliza la configuración ni los datos de SYX Gestión anterior.
+Este paquete amplía la v2. Conserva las órdenes de taller, clientes, selección de accesorios, descripción del estado físico, recepción A4, códigos de barras, entrega e impresión de retiro.
 
-## Funciones incluidas
+## Novedades de la versión 3
 
-### Taller y clientes
-- Inicio de sesión con Firebase Authentication (correo y contraseña).
-- Alta y búsqueda de clientes por DNI, nombre y teléfono; documento como identificador único.
-- Nueva orden con numeración correlativa de seis dígitos almacenada en Firestore.
-- Marca y modelo con autocompletado a partir de órdenes existentes y catálogos Firestore; se guardan al crear una orden.
-- Selección de falla frecuente o creación de una falla personalizada, que queda guardada.
-- **Estado físico del equipo**, distinto de falla y diagnóstico: se documentan rayones, golpes, faltantes, etc.
-- **Accesorios:** chips con selección múltiple, más campo «Guardar accesorio» para crear otro y hacerlo disponible para todo el personal. Se conservan en la orden como lista independiente y texto para compatibilidad con las órdenes anteriores.
-- Estados, áreas, responsable, presupuesto, diagnóstico y observaciones editables hasta la entrega.
-- Historial básico del mismo equipo por ID interno y filtros por estado, área y búsqueda.
+### Caja y cierres
+- Listado persistente de cajas abiertas y cerradas en Firestore, con apertura/cierre, responsables, fondo inicial, efectivo esperado, efectivo contado y diferencia.
+- Apertura con **fondo inicial en efectivo** (no se contabiliza como ingreso de venta).
+- Los resúmenes de cajas nuevas se mantienen en el mismo commit que cada movimiento, sin sumarlos dos veces; el cierre conserva un resumen final.
+- Cada caja histórica tiene un botón **Ver detalle**, que busca **todos** los movimientos de ese turno por `cajaId`, no solo los movimientos generales de la pantalla.
+- Descarga CSV del historial de un turno y de la caja abierta.
+- Los cierres de v2 que no tenían resumen precalculado también se pueden abrir y reconstruir desde sus movimientos.
 
-### Impresión A4
-- Al crear una orden se abre automáticamente una hoja de ingreso: **comprobante para el cliente + copia del taller + dos etiquetas recortables** con códigos de barras.
-- Los tres códigos de la hoja de ingreso contienen el número de orden de seis dígitos, para que el lector pueda buscarla escribiendo ese valor.
-- Desde «Ver / Imprimir» se puede reimprimir la hoja de ingreso tantas veces como sea necesario.
-- Al confirmar la entrega se habilita «Imprimir constancia de retiro» con datos del cliente, equipo, estado al ingresar, diagnóstico, importe, medios de pago, persona que retira, firma y código de barras.
-- Códigos **Code 39 numéricos generados localmente como SVG**, sin servicios externos ni claves de API. Configurá el lector para leer Code 39.
-- Impresión en tamaño A4; en el navegador habilitá ventanas emergentes y elegí escala 100 %, sin encabezados/pies de página si querés aprovechar el formato.
+### Estadísticas
+- Tres cuadros distintos de **Efectivo**, **Digital** (Transferencia + QR + Posnet) y **Total general**, todos con ingresos, egresos y neto.
+- Resumen digital separado por QR, Transferencia y Posnet.
+- Filtro por fecha y alcance de la caja actual o todas las cajas, y exportación CSV.
+- El cálculo de ingresos digitales mixtos distingue cada medio: una venta de $100 con $30 efectivo y $70 QR se refleja una sola vez en Total general.
+- Las vistas estadísticas generales consultan hasta 5.000 movimientos (se advierte al llegar al límite). Para un cierre exacto, usar **Historial de cajas → Ver detalle**, donde se consultan los movimientos del turno sin ese límite general.
 
-### Caja y cobros
-- Apertura y cierre de una caja global, movimientos manuales de ingreso/egreso y venta manual.
-- Presupuesto obligatorio antes de entregar (se permite $0). Se cobra **solo al entregar**.
-- Cobros combinados de efectivo, transferencia, QR y Posnet; el total debe coincidir exactamente con el presupuesto.
-- Entrega y cobro se ejecutan **en una transacción**; identificador del movimiento fijo `retiro_{id_orden}`; no se permiten entregas ni cobros duplicados por el flujo de la app.
-- Las órdenes con presupuesto 0 pueden entregarse sin caja abierta y no generan un movimiento de ingreso falso.
+### Inventario
+- Productos en colección `productos`, identificados por **SKU único**.
+- Campos: SKU, nombre, categoría, stock, stock mínimo, precio efectivo y precio lista, activo/archivado.
+- Búsqueda por SKU, nombre y categoría, alerta de mínimo y exportación CSV.
+- Ajuste manual de stock con motivo obligatorio, usuario y antes/después, registrado en `ajustesStock`.
 
-## Primera instalación
+### Venta rápida en Caja y Punto de Venta
+- Búsqueda / escaneo por SKU o parte del nombre, carrito con múltiples productos y cantidades.
+- Tarifa de lista o efectivo; **tarifa efectivo exige 100 % pago efectivo**. El precio de lista permite medios combinados.
+- Botones para completar pago con Efectivo, QR, Transferencia o Posnet y cuatro casilleros para cobro mixto.
+- Venta, movimiento de caja, desglose de pagos y descuento de stock se registran **en una sola transacción Firestore** con revalidación de stock y de precio, y un ID de movimiento único para esa venta.
+- Histórico de ventas del inventario y exportación CSV.
+- Se conserva el ingreso manual excepcional que no descuenta stock, identificado explícitamente como tal.
 
-### 1. Subir archivos
-Subí **los contenidos del ZIP descomprimido** a la raíz de `https://github.com/agusthebeast/sistema-skorn` en la rama principal. Reemplazá archivos existentes cuando GitHub lo indique. Importante: agregá los nuevos archivos `public/js/print.js` y `tests/print.test.mjs`, además del resto de archivos modificados.
+## Publicación de v3
 
-### 2. Publicar en GitHub Codespaces
-En **Code → Codespaces** abrí una terminal en la raíz del repositorio y ejecutá:
+1. Descomprimir y subir **los archivos del interior** del ZIP a la raíz del repositorio `agusthebeast/sistema-skorn`, reemplazando los archivos de v2 (no subir el ZIP como único archivo).
+2. Abrir Codespaces de ese repositorio, y ejecutar:
 
 ```bash
-npm install -g firebase-tools
-firebase login --no-localhost
+git pull origin main
 firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499
 ```
 
-Si Codespaces tenía un repositorio abierto desde antes de la carga, ejecutá `git pull origin main` primero.
+3. Abrir `https://ordenes-trabajo-a8499.web.app` y presionar `Ctrl+Shift+R` para renovar la caché.
 
-**Es obligatorio publicar `firestore.rules`**: sin ello, la app no podrá utilizar la colección nueva `catalogos` si las reglas previas bloquean su acceso.
+**Importante:** publicá **hosting y firestore:rules juntos**. Esta versión incorpora las colecciones `productos`, `ventas` y `ajustesStock`, además de actualizar los permisos de `cajas` para poder registrar saldos de turno durante su operación. Si las reglas no se publican, podrían fallar los cobros y la venta de productos.
 
-### 3. Probar
-1. Abrí `https://ordenes-trabajo-a8499.web.app` e ingresá con el usuario ya creado en Firebase Authentication.
-2. Creá un cliente ficticio, después una orden con dos accesorios y otro nuevo personalizado.
-3. Permití el popup de impresión y comprobá el documento y las dos etiquetas del taller.
-4. Creá otra orden: los accesorios guardados y la falla deben volver a aparecer.
-5. Abrí Caja y registrá presupuesto y cobro de prueba, luego marcá la orden como Entregada.
-6. Comprobá que existe **un único** movimiento de caja, y emití la constancia de retiro.
-7. Probá una orden de $0, sin caja abierta, para comprobar que no genera ingreso.
+## Prueba mínima antes de utilizar dinero real
 
-Para corregir caché tras publicar, recargá con **Ctrl+Shift+R**.
+1. Acceder con el usuario de Authentication.
+2. Abrir una caja con $10.000 de fondo inicial.
+3. En Inventario, crear un producto de prueba con SKU `TEST-HDMI`, stock 3, precio lista $5.000 y efectivo $4.500.
+4. En Caja → Venta rápida, buscar `TEST-HDMI` y vender 1 unidad con cobro efectivo; confirmar que el stock baja de 3 a 2, que Caja muestra un ingreso de $4.500 en efectivo y que la venta aparece en Historial de ventas.
+5. Registrar un egreso digital de $1.000, comprobar que las estadísticas sean: Efectivo +$4.500, Digital -$1.000, General +$3.500.
+6. Cerrar caja contando efectivo y comprobar que aparece en Historial. Abrir el detalle y exportar movimientos.
+7. Volver a abrir otra caja: la anterior debe permanecer cerrada e independiente.
+8. Revisar con datos ficticios los cobros de entrega de órdenes y comprobar que no generen movimientos duplicados.
+9. Eliminar/archivar solamente los productos de prueba desde la app (los movimientos de prueba quedan asentados por auditoría). **Preferible probar en un proyecto de Firebase de prueba si no querés contaminar tus libros reales**.
 
-## Seguridad y alcance
+## Seguridad y límites de esta versión
 
-- No agregues contraseñas, tokens privados, cuentas de servicio ni contactos reales a GitHub público.
-- La configuración pública de Firebase en `public/js/firebase.js` no equivale a una cuenta privada; **las reglas Firestore y Authentication son las barreras reales**.
-- Las reglas del paquete permiten utilizar los datos a cuentas autenticadas: para controles por roles, autorizaciones diferenciadas o auditoría reglamentaria necesitaremos definir los perfiles del personal y endurecer dichas reglas antes de uso intensivo.
-- Esta actualización implementa las mejoras solicitadas del **taller** junto al flujo básico de Caja, Clientes y venta manual de la versión previa. El POS sigue siendo de venta manual: no se presenta como una réplica total de Gestioo ni como inventario/contabilidad integral.
-- No se migran clientes ni órdenes anteriores ni se modifica el proyecto Firebase antiguo.
-- Las pruebas automáticas verifican la lógica de pago y la estructura de las impresiones, pero **las operaciones en Firebase real requieren la prueba guiada** descrita arriba.
+- No se modificó el proyecto Firebase anterior `syx-gestion`.
+- El código Firebase del frontend es público por diseño. Nunca subir claves privadas ni datos reales de clientes a GitHub público.
+- `firestore.rules` restringe la lectura/escritura a cuentas autenticadas, con reglas de integridad básicas para órdenes, cobros, ventas y stock. **No establece aún roles detallados por empleado**: para producción, conviene introducir permisos de administrador, vendedor, técnico y cajero y reforzar la auditoría del lado del servidor.
+- Las ventas y cierres se prueban con Node.js localmente y deben verificarse **en Firebase real**. No afirmamos que el despliegue ya se realizó.
+- El balance de caja refleja movimientos de dinero registrados; **no equivale a ganancia neta contable** porque no descuenta costos de mercadería, impuestos o comisiones de procesadores salvo egresos registrados.
+- Los registros anteriores al nuevo sistema de resumen continúan accesibles. Si hay más de 5.000 movimientos, el cuadro general requiere paginación/agregaciones para informes históricos exhaustivos; el detalle por turno realiza una consulta específica.
 
-## Pruebas locales
-
-Requiere Node.js 18+:
+## Pruebas automáticas
 
 ```bash
 node --test tests/*.mjs
 ```
 
-## Estructura
-
-```
-.firebaserc
-firebase.json
-firestore.rules
-public/index.html
-public/css/style.css
-public/js/app.js
-public/js/domain.js
-public/js/firebase.js
-public/js/print.js
-tests/domain.test.mjs
-tests/print.test.mjs
-```
+Incluye pruebas de entrega, pagos, códigos de barras, clasificación financiera, SKU, carrito, cobro mixto y control de existencias.

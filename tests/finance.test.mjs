@@ -1,0 +1,9 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {normalizeSku,validSku,normalizePayments,ensurePaymentTotal,saleTotal,summarizeMovements,paymentStats} from '../public/js/finance.js';
+test('SKU se normaliza y valida',()=>{assert.equal(normalizeSku(' hdmi 2m '),'HDMI-2M');assert.equal(validSku('HDMI-2M'),true);assert.equal(validSku('x/y'),false)});
+test('cobro combinado permite efectivo y digitales',()=>{assert.equal(ensurePaymentTotal({Efectivo:500,QR:350,Posnet:150},1000).QR,350)});
+test('descuento efectivo exige 100 % efectivo',()=>{assert.throws(()=>ensurePaymentTotal({Efectivo:500,QR:500},1000,'efectivo'));assert.equal(ensurePaymentTotal({Efectivo:1000},1000,'efectivo').Efectivo,1000)});
+test('importe no puede superar precio ni tener centavos extra',()=>{assert.throws(()=>ensurePaymentTotal({QR:100.001},100));assert.throws(()=>ensurePaymentTotal({QR:90},100))});
+test('venta de productos valida stock y precio seleccionado',()=>{const prod=[{id:'TV',nombre:'TV',stock:2,activo:true,precioLista:200,precioEfectivo:170}];assert.equal(saleTotal([{id:'TV',cantidad:2}],prod),400);assert.equal(saleTotal([{id:'TV',cantidad:2}],prod,'efectivo'),340);assert.throws(()=>saleTotal([{id:'TV',cantidad:3}],prod))});
+test('resumen clasifica los 3 canales y entradas/salidas sin doble conteo',()=>{const s=summarizeMovements([{tipo:'ingreso',monto:1000,pagos:{Efectivo:300,QR:200,Transferencia:300,Posnet:200}},{tipo:'egreso',monto:250,pagos:{Efectivo:200,QR:50}}]);assert.equal(s.ingresos,1000);assert.equal(s.egresos,250);assert.equal(s.efectivoIngresos,300);assert.equal(s.digitalIngresos,700);assert.equal(s.digitalEgresos,50);assert.equal(paymentStats(s)[2].neto,750)});
+test('movimiento antiguo sin pagos queda registrado como Otros',()=>{const s=summarizeMovements([{tipo:'ingreso',monto:80}]);assert.equal(s.ingresos,80);assert.equal(s.otrosIngresos,80);assert.equal(s.digitalIngresos,0)});
