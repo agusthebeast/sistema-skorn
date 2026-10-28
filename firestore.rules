@@ -6,6 +6,20 @@ service cloud.firestore {
     function movementPath(orderId) { return /databases/$(database)/documents/movimientos/$("retiro_" + orderId); }
 
     // Se usa un único proyecto nuevo; nunca se consulta el Firebase viejo.
+    // Catálogos compartidos: marcas, modelos, fallas y accesorios.
+    // Los usuarios autenticados pueden incorporar términos nuevos sin abrir permisos públicos.
+    match /catalogos/{catalogId} {
+      allow read: if signed();
+      allow create, update: if signed()
+        && request.resource.data.tipo in ['marca','modelo','falla','accesorio']
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 90
+        && request.resource.data.updatedBy == request.auth.token.email
+        && (!exists(/databases/$(database)/documents/catalogos/$(catalogId))
+          || request.resource.data.tipo == resource.data.tipo);
+      allow delete: if false;
+    }
     match /clientes/{dni} {
       allow read: if signed();
       allow create: if signed() && request.resource.data.dni == dni && request.resource.data.nombre is string;

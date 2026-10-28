@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {barcodeSvg,printDocument,intakeHtml,deliveryHtml} from '../public/js/print.js';
+const order={numero:'000123',nombreCliente:'Cliente prueba',marca:'Samsung',modelo:'UN40',falla:'No enciende',trabajo:'Se apaga',estadoEquipo:'Rayones en marco',accesoriosLista:['Control remoto','Base / pie'],presupuesto:1000,pagosEntrega:{Efectivo:1000}};
+test('Code 39 utiliza inicio, fin y dígitos de orden',()=>{const svg=barcodeSvg('000123');assert.match(svg,/Código de barras 000123/);assert.match(svg,/<rect /);assert.match(svg,/>000123<\/text>/)});
+test('Rechaza caracteres no escaneables',()=>assert.throws(()=>barcodeSvg('0001X'),/numérico/i));
+test('Ingreso contiene talón cliente, taller y dos etiquetas adicionales',()=>{const h=intakeHtml(order);assert.match(h,/COMPROBANTE PARA EL CLIENTE/);assert.match(h,/COPIA PARA EL TALLER/);assert.equal((h.match(/class="sticker"/g)||[]).length,2);assert.equal((h.match(/class="barcode"/g)||[]).length,3);assert.match(h,/Rayones en marco/);assert.match(h,/Control remoto, Base \/ pie/)});
+test('Retiro muestra firmas y desglose',()=>{const h=deliveryHtml(order);assert.match(h,/CONSTANCIA DE RETIRO/);assert.match(h,/Firma del cliente/);assert.match(h,/Efectivo/)});
+test('El contenido de cliente se escapa en las impresiones',()=>{const h=printDocument({...order,nombreCliente:'<script>alert(1)</script>'},'ingreso');assert.doesNotMatch(h,/<script>alert\(1\)<\/script>/);assert.match(h,/&lt;script&gt;/)});
+test('Impresión tiene tamaño A4',()=>assert.match(printDocument(order),/@page\{size:A4/));
