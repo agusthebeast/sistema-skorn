@@ -1,0 +1,84 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signed() { return request.auth != null; }
+    function orderPath(orderId) { return /databases/$(database)/documents/ordenes/$(orderId); }
+    function movementPath(orderId) { return /databases/$(database)/documents/movimientos/$("retiro_" + orderId); }
+
+    // Se usa un único proyecto nuevo; nunca se consulta el Firebase viejo.
+    match /clientes/{dni} {
+      allow read: if signed();
+      allow create: if signed() && request.resource.data.dni == dni && request.resource.data.nombre is string;
+      allow update: if signed() && request.resource.data.dni == resource.data.dni;
+      allow delete: if false;
+    }
+    match /equipos/{equipoId} {
+      allow read: if signed();
+      allow create: if signed() && request.resource.data.clienteId is string;
+      allow update: if signed() && request.resource.data.clienteId == resource.data.clienteId;
+      allow delete: if false;
+    }
+    match /ordenes/{orderId} {
+      allow read: if signed();
+      allow create: if signed()
+        && request.resource.data.estado == 'Sin estado'
+        && request.resource.data.presupuesto == null
+        && request.resource.data.numero is string
+        && request.resource.data.clienteId is string;
+      allow update: if signed() && resource.data.estado != 'Entregado' && (
+        // Edición regular: ninguna entrega se puede realizar mediante esta rama.
+        (request.resource.data.estado != 'Entregado' && !('deliveryId' in request.resource.data))
+        ||
+        // Entrega, con orden y movimiento consistente en un mismo commit.
+        (request.resource.data.estado == 'Entregado'
+          && request.resource.data.deliveryId == orderId
+          && resource.data.presupuesto is number
+          && resource.data.presupuesto >= 0
+          && request.resource.data.presupuesto == resource.data.presupuesto
+          && request.resource.data.area == 'Salida'
+          && (
+            (resource.data.presupuesto == 0 && request.resource.data.movimientoCajaId == null)
+            ||
+            (resource.data.presupuesto > 0
+              && request.resource.data.movimientoCajaId == 'retiro_' + orderId
+              && getAfter(movementPath(orderId)).data.monto == resource.data.presupuesto
+              && getAfter(movementPath(orderId)).data.ordenId == orderId)
+          )
+        )
+      );
+      allow delete: if false;
+    }
+    match /movimientos/{movId} {
+      allow read: if signed();
+      allow create: if signed()
+        && request.resource.data.monto is number
+        && request.resource.data.monto > 0
+        && request.resource.data.cajaId is string
+        && request.resource.data.pagos is map
+        && (
+          // Movimientos manuales y ventas.
+          request.resource.data.origen in ['manual','venta_manual']
+          ||
+          // Cobro al entregar: no existe sin su orden actualizada.
+          (request.resource.data.origen == 'retiro_orden'
+            && movId == 'retiro_' + request.resource.data.ordenId
+            && getAfter(orderPath(request.resource.data.ordenId)).data.estado == 'Entregado'
+            && getAfter(orderPath(request.resource.data.ordenId)).data.movimientoCajaId == movId
+            && getAfter(orderPath(request.resource.data.ordenId)).data.presupuesto == request.resource.data.monto)
+        );
+      allow update, delete: if false;
+    }
+    match /cajas/{cajaId} {
+      allow read: if signed();
+      allow create: if signed() && request.resource.data.estado == 'abierta';
+      allow update: if signed() && resource.data.estado == 'abierta' && request.resource.data.estado == 'cerrada';
+      allow delete: if false;
+    }
+    match /config/{id} {
+      allow read: if signed();
+      allow create, update: if signed() && id in ['cajaActual','contadores'];
+      allow delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

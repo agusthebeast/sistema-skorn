@@ -1,0 +1,11 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {sumPayments,validateDelivery,normalizeDni,normalizeSerie} from '../public/js/domain.js';
+test('combinados suman',()=>assert.equal(sumPayments({Efectivo:30000,Posnet:50000}),80000));
+test('presupuesto vacío bloquea',()=>assert.throws(()=>validateDelivery({presupuesto:null},{},{}),/presupuesto/i));
+test('cero permite sin caja',()=>assert.equal(validateDelivery({presupuesto:0},{},{openCash:false}),0));
+test('dos entregas bloqueadas',()=>assert.throws(()=>validateDelivery({presupuesto:100,estado:'Entregado'},{Efectivo:100},{openCash:true}),/entregada/i));
+test('desglose incompleto bloquea',()=>assert.throws(()=>validateDelivery({presupuesto:200},{Efectivo:100},{openCash:true}),/suma/i));
+test('exige caja',()=>assert.throws(()=>validateDelivery({presupuesto:100},{Efectivo:100},{openCash:false}),/caja/i));
+test('importe correcto y caja abierta',()=>assert.equal(validateDelivery({presupuesto:100},{Efectivo:20,Transferencia:80},{openCash:true}),100));
+test('pago viejo bloquea',()=>assert.throws(()=>validateDelivery({presupuesto:100,cobroRegistrado:true},{Efectivo:100},{openCash:true}),/cobro anteriores/i));
+test('normalizaciones',()=>{assert.equal(normalizeDni('12.345.678'),'12345678');assert.equal(normalizeSerie('ab-01 /z'),'AB01Z')});
