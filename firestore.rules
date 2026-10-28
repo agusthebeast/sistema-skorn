@@ -20,10 +20,26 @@ service cloud.firestore {
           || request.resource.data.tipo == resource.data.tipo);
       allow delete: if false;
     }
-    match /clientes/{dni} {
+    match /clientes/{clienteId} {
       allow read: if signed();
-      allow create: if signed() && request.resource.data.dni == dni && request.resource.data.nombre is string;
-      allow update: if signed() && request.resource.data.dni == resource.data.dni;
+      // DNI real: id del documento = DNI.
+      // SIN DNI: identificador interno reservado; no se inventan documentos nacionales.
+      allow create: if signed()
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 180
+        && request.resource.data.dni is string
+        && (
+          (request.resource.data.dni == clienteId && clienteId.matches('[0-9]{6,11}'))
+          ||
+          (clienteId.matches('sin-dni_[a-z0-9_-]+')
+           && request.resource.data.dni == ''
+           && request.resource.data.importadoSinDni == true)
+        );
+      allow update: if signed()
+        && request.resource.data.dni == resource.data.dni
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0;
       allow delete: if false;
     }
     match /equipos/{equipoId} {

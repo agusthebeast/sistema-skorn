@@ -25,14 +25,22 @@ const showDrawer=(title,body)=>{$('drawer-title').textContent=title;$('drawer-bo
 const closeDrawer=()=>{$('drawer').classList.add('hidden');$('overlay').classList.add('hidden');detailId=null};
 const field=(title,val='')=>`<div class="field-card"><b>${safe(title)}</b><p>${safe(val)}</p></div>`;
 const statusPill=v=>`<span class="pill ${v==='Entregado'?'done':v==='Listo para retirar'?'ready':v==='En reparación'?'work':''}">${safe(v||'Sin estado')}</span>`;
-function renderOrders(){const active=orders.filter(o=>o.estado!=='Entregado');$('open-count').textContent=active.length;for(const a of ['Entrada','Reparación','Salida'])$('count-'+(a==='Reparación'?'reparacion':a.toLowerCase())).textContent=active.filter(o=>o.area===a).length;
+const STATUSES=['Sin estado','En diagnóstico','En reparación','Esperando repuesto','Esperando respuesta','Pasar presupuesto','Listo para retirar','Reparado','No reparado','Sin solución','Deposito','Entregado'];
+function renderOrders(){
+ const statusSelect=$('filter-status'),statusSelected=statusSelect.value;
+ const statuses=[...new Set([...STATUSES,...orders.map(o=>o.estado).filter(Boolean)])];
+ if(statusSelect.options.length!==statuses.length+1||statuses.some(s=>![...statusSelect.options].some(o=>o.value===s))){
+   statusSelect.innerHTML='<option value="">Todos los estados</option>'+statuses.map(s=>`<option value="${safe(s)}">${safe(s)}</option>`).join('');
+   statusSelect.value=statuses.includes(statusSelected)?statusSelected:'';
+ }
+ const active=orders.filter(o=>o.estado!=='Entregado');$('open-count').textContent=active.length;for(const a of ['Entrada','Reparación','Salida'])$('count-'+(a==='Reparación'?'reparacion':a.toLowerCase())).textContent=active.filter(o=>o.area===a).length;
 const q=$('search-orders').value.trim().toLowerCase(),stat=$('filter-status').value;
 let filtered=orders.filter(o=>(area==='Todas'||o.area===area)&&(!stat||o.estado===stat)&&(!q||[o.numero,o.nombreCliente,o.dniCliente,o.modelo,o.marca,o.responsable,o.serie,o.falla].join(' ').toLowerCase().includes(q)));
 filtered.sort((a,b)=>Number(b.numero||0)-Number(a.numero||0));$('orders-foot').textContent=`Cantidad: ${filtered.length} órdenes`;
 $('orders-table').innerHTML=filtered.length?filtered.map(o=>`<tr class="order-row" data-id="${safe(o.id)}"><td><b>${safe(o.numero)}</b></td><td>${statusPill(o.estado)}</td><td>${safe([o.marca,o.modelo].filter(Boolean).join(' '))}</td><td>${safe(o.nombreCliente)}</td><td>${safe(o.responsable||'Sin asignar')}</td><td>${o.presupuesto===null||o.presupuesto===undefined?'Pendiente':money(o.presupuesto)}</td><td><button type="button" class="mini" data-id="${safe(o.id)}">Ver / Imprimir</button></td></tr>`).join(''):'<tr><td colspan="7">No se encontraron órdenes para este filtro.</td></tr>';
 $('orders-table').querySelectorAll('[data-id]').forEach(n=>n.addEventListener('click',()=>showOrder(n.dataset.id)));
 }
-function renderClients(){let q=$('search-clients').value.trim().toLowerCase();let rows=clients.filter(c=>[c.nombre,c.dni,c.telefono].join(' ').toLowerCase().includes(q));$('clients-table').innerHTML=rows.length?rows.map(c=>`<tr><td>${safe(c.nombre)}</td><td>${safe(c.dni)}</td><td>${safe(c.telefono)}</td><td>${safe(c.direccion)}</td></tr>`).join(''):'<tr><td colspan="4">Sin clientes.</td></tr>'}
+function renderClients(){let q=$('search-clients').value.trim().toLowerCase();let rows=clients.filter(c=>[c.nombre,c.dni,c.telefono,c.correo].join(' ').toLowerCase().includes(q));$('clients-table').innerHTML=rows.length?rows.map(c=>`<tr><td>${safe(c.nombre)}</td><td>${safe(c.dni||'Sin DNI · revisar')}</td><td>${safe(c.telefono)}</td><td>${safe(c.direccion)}</td></tr>`).join(''):'<tr><td colspan="4">Sin clientes.</td></tr>'}
 // ---- Caja, historial, estadísticas y pagos de ventas / V3 ----
 function cashDelta(tipo,pagos,monto){
  const dir=tipo==='ingreso'?'Ingresos':'Egresos';
@@ -243,8 +251,8 @@ function renderDetail(){
  const done=o.estado==='Entregado';
  const tabs=['general','diagnostico','historial'];
  $('drawer-title').textContent=`Orden N.º ${o.numero}`;
- $('drawer-body').innerHTML=`<div class="status-row"><div><b>${safe([o.marca,o.modelo].join(' '))}</b><p class="hint">${safe(o.nombreCliente)} · DNI ${safe(o.dniCliente)}</p></div>${statusPill(o.estado)}</div>
- <div class="print-actions"><button class="btn ghost" id="print-entry">▤ Imprimir orden de ingreso + etiquetas</button><button class="btn ghost" id="print-pickup" ${done?'':'disabled title="Se habilita cuando se entrega el equipo"'}>▤ Imprimir constancia de retiro</button></div>
+ $('drawer-body').innerHTML=`<div class="status-row"><div><b>${safe([o.marca,o.modelo].join(' '))}</b><p class="hint">${safe(o.nombreCliente)} · ${o.dniCliente?'DNI '+safe(o.dniCliente):'Sin DNI · verificar datos'}</p></div>${statusPill(o.estado)}</div>
+ ${o.requiereRevisionCliente?'<div class="notice">Cliente importado pendiente de confirmar identidad y DNI.</div>':''}<div class="print-actions"><button class="btn ghost" id="print-entry">▤ Imprimir orden de ingreso + etiquetas</button><button class="btn ghost" id="print-pickup" ${done?'':'disabled title="Se habilita cuando se entrega el equipo"'}>▤ Imprimir constancia de retiro</button></div>
  <div class="detail-tabs">${tabs.map(t=>`<button data-tab="${t}" class="${detailTab===t?'active':''}">${({general:'Orden',diagnostico:'Diagnóstico',historial:'Historial'})[t]}</button>`).join('')}</div><div id="detail-content"></div>`;
  $('print-entry').onclick=()=>warnPopup(o,'ingreso');
  $('print-pickup').onclick=()=>warnPopup(o,'retiro');
@@ -266,7 +274,7 @@ function renderDetail(){
  body.innerHTML=`<div class="form-grid"><label class="span-2">Falla declarada<input id="edit-falla" value="${safe(o.falla||'')}" ${done?'disabled':''}></label><label class="span-2">Descripción de la falla<textarea id="edit-trabajo" ${done?'disabled':''}>${safe(o.trabajo||'')}</textarea></label>
  <label class="span-2">Estado físico del equipo<textarea id="edit-estado-equipo" ${done?'disabled':''} placeholder="Rayones, golpes, falta de piezas…">${safe(estadoEquipo)}</textarea></label>
  <div class="span-2">${!done?`<h4 class="form-subheading">Accesorios ingresados</h4>${accessoryPickerHtml()}`:`${field('Accesorios',accesorios.join(', ')||'Sin accesorios')}`}</div>
- <label>Estado<select id="edit-estado" ${done?'disabled':''}>${['Sin estado','En diagnóstico','En reparación','Esperando repuesto','Listo para retirar','Entregado'].filter(s=>s!=='Entregado'||done).map(s=>`<option ${s===o.estado?'selected':''}>${s}</option>`).join('')}</select></label>
+ <label>Estado<select id="edit-estado" ${done?'disabled':''}>${[...new Set([...STATUSES,...orders.map(x=>x.estado).filter(Boolean)])].filter(s=>s!=='Entregado'||done).map(s=>`<option ${s===o.estado?'selected':''}>${s}</option>`).join('')}</select></label>
  <label>Área<select id="edit-area" ${done?'disabled':''}>${['Entrada','Reparación','Salida'].map(s=>`<option ${s===o.area?'selected':''}>${s}</option>`).join('')}</select></label>
  <label>Responsable<input id="edit-responsable" value="${safe(o.responsable||'')}" ${done?'disabled':''}></label>
  <label>Presupuesto ($)<input id="edit-presupuesto" type="number" min="0" step="0.01" value="${o.presupuesto??''}" ${done?'disabled':''} placeholder="Pendiente"></label></div>
