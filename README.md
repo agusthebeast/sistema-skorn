@@ -1,4 +1,4 @@
-# SYX | Órdenes de Trabajo — V4 (migración Gestioo)
+# SYX | Órdenes de Trabajo — V5 (ficha de cliente y configuración)
 
 **Firebase exclusivo:** `ordenes-trabajo-a8499`  
 **Repositorio:** `agusthebeast/sistema-skorn`  
@@ -6,9 +6,50 @@
 
 Esta actualización conserva Caja, historial de cierres, estadísticas, inventario, ventas, órdenes de taller, etiquetas con código de barras y constancias de retiro de V3. Agrega una **pantalla de importación privada** y permite ver y editar los estados originales de Gestioo, sin cambiarlos accidentalmente a «Sin estado».
 
+## Novedades de la V5 (30/10/2026)
+
+### Ver orden → Datos completos del cliente
+
+- En **Ver / Imprimir** se muestra, de forma visible y sin cambiar de pantalla, una tarjeta con **nombre y apellido, DNI, teléfono/WhatsApp, correo electrónico y dirección**.
+- Si el registro en la agenda incluye observaciones, se muestran también.
+- Los datos se toman de **la ficha actualizada de `clientes`** en Firestore usando `clienteId`. Si esa ficha aún no existe, se usan los datos históricos disponibles dentro de la orden; los campos faltantes dicen *Sin registrar*.
+- Los clientes migrados con datos por revisar siguen identificados. No se inventan DNI, teléfonos ni correos.
+- Los botones **Imprimir orden** e **Imprimir retiro** también toman los datos vigentes de contacto cuando están disponibles.
+
+### Configuración → Accesorios y Fallas informadas
+
+- Nueva sección **Configuración** (ícono de engranaje del menú izquierdo) con pestañas **Accesorios** y **Fallas informadas**.
+- Podés **agregar opciones** y se guardan en la colección `catalogos`.
+- Podés **quitar una opción** de la lista usada para órdenes nuevas. Se marca `activo:false` en Firestore: **no se borra ni modifica ninguna orden histórica**. Con **Mostrar también las ocultas**, se puede **Restaurar**.
+- El mismo catálogo se usa en **Crear orden** y en el selector de **Falla informada** al **editar una orden**. Las fallas históricas se siguen mostrando en su propia orden aunque se hayan ocultado del selector general.
+- Los accesorios seleccionados históricamente tampoco se pierden ni se quitan de órdenes antiguas.
+
+### Instalación sin pérdida de datos
+
+1. Descomprimí **este ZIP de código** y subí su contenido a la raíz de `agusthebeast/sistema-skorn`, reemplazando archivos anteriores. Conservá los archivos ocultos `.firebaserc` y `.gitignore`.
+2. En GitHub Codespaces abrí una terminal y ejecutá:
+
+```bash
+git pull origin main
+firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499
+```
+
+3. Abrí `https://ordenes-trabajo-a8499.web.app` y recargá con `Ctrl + Shift + R`.
+4. Abrí una orden existente para comprobar los contactos. Entrá en Configuración, creá una falla de prueba, quitála y restaurala.
+
+**Los documentos de órdenes, clientes, equipos, Caja, inventario y ventas existentes no se borran ni se migran de nuevo.** El despliegue sustituye únicamente el frontend y las reglas. No es necesario repetir la importación de los 909 clientes o las 152 órdenes si ya se completó.
+
+**Permisos:** la versión mantiene el esquema de la V4: toda cuenta autenticada puede modificar el catálogo. Para reservar Configuración exclusivamente a administradores habría que incorporar roles y reglas adicionales.
+
+**Pruebas locales:** 36 tests unitarios aprobados, incluidos 7 tests nuevos de opciones visibles/ocultas, clientes históricos y datos actualizados. También se verificó la presentación de Configuración en desktop y móvil. El proyecto no se publicó ni se probó conectado a tu Firebase desde este entorno.
+
+---
+
+## Guía histórica de migración V4 (solo si todavía no migraste)
+
 ## Dos archivos ZIP separados (muy importante)
 
-**1. `SYX_Sistema_V4_Migracion_GitHub.zip`**: código del sistema y reglas de Firestore. **Este es el único ZIP cuyo contenido se debe subir al repositorio GitHub.** No incluye datos personales reales.
+**1. `SYX_Sistema_V5_Clientes_Configuracion_GitHub.zip`**: código del sistema y reglas de Firestore. **Este es el único ZIP cuyo contenido se debe subir al repositorio GitHub.** No incluye datos personales reales.
 
 **2. `SYX_Datos_Privados_Migracion_Gestioo.zip`**: contiene el JSON con la agenda y las órdenes reales y archivos CSV para verificación. **NO SUBIR ESTE ARCHIVO NI SU CONTENIDO A GITHUB, GITHUB CODESPACES NI A FIREBASE HOSTING.** Guardarlo localmente y cargar el JSON en el navegador desde la pantalla de importación. Los datos solo se escriben en Firestore después de la confirmación.
 
@@ -48,7 +89,7 @@ La importación eleva el contador de nuevas órdenes al menos a **1069** para qu
 
 ## Reglas de seguridad
 
-- V4 actualiza `firestore.rules` para permitir contactos importados **sin DNI real**, con ID interno `sin-dni_*` claramente diferenciado. La versión anterior solo permitía clientes con DNI.
+- V4 y V5 actualizan `firestore.rules` para permitir contactos importados **sin DNI real**, con ID interno `sin-dni_*` claramente diferenciado. La versión anterior solo permitía clientes con DNI.
 - El importador web requiere Firebase Authentication. No contiene ni distribuye los datos personales: estos se cargan de un archivo local elegido expresamente por el operador.
 - La app todavía no tiene permisos por roles: **quien tenga cuenta autenticada de Firebase puede realizar operaciones de importación según las reglas actuales**. Usá solamente cuentas de confianza; un endurecimiento con roles de administrador es recomendable para uso productivo.
 - Para evitar pérdidas accidentales, no se borra ni reemplaza un cliente, una orden o un equipo existentes. Las órdenes importadas usan documentos con IDs determinísticos y el importador puede reanudarse. Un conflicto de numeración preexistente **bloquea la importación** en la verificación previa.
@@ -60,4 +101,4 @@ La importación eleva el contador de nuevas órdenes al menos a **1069** para qu
 node --test tests/*.mjs
 ```
 
-29 pruebas locales de lógica, impresión, cobros y preparación de migración pasadas. Falta validar la operación conectada a tu cuenta Firebase desde el navegador.
+36 pruebas locales de lógica, impresión, cobros, migración y Configuración pasadas. Falta validar la operación conectada a tu cuenta Firebase desde el navegador.

@@ -4,15 +4,14 @@ import {collection,doc,getDoc,setDoc,updateDoc,runTransaction,onSnapshot,serverT
 import {METHODS,money,safe,normalizeDni,normalizeSerie,sumPayments,validateDelivery} from './domain.js';
 import {openPrint} from './print.js';
 import {PAY_METHODS,cents,fromCents,normalizeSku,validSku,ensurePaymentTotal,saleTotal,summarizeMovements,paymentStats,emptySummary,movementBreakdown} from './finance.js';
+import {catalogKey,catalogOptions,activeCatalogNames} from './catalog-utils.js';
+import {clientForOrder} from './client-utils.js';
 const $=id=>document.getElementById(id);
 const refs={cash:doc(db,'config','cajaActual'),counter:doc(db,'config','contadores')};
-let orders=[],clients=[],movements=[],catalog=[],cash=null,area='Entrada',page='ordenes',user=null,selectedClient=null,selectedEquipment=null,detailId=null,unsubs=[],processing=false,detailTab='general',chosenAccessories=new Set(),lastPrintedId=null,orderDraft=null,cashSessions=[],products=[],sales=[],stockAdjustments=[],saleCart=[],salePriceMode="lista",salePayments={Efectivo:0,Transferencia:0,QR:0,Posnet:0},saleSearch={caja:"",venta:""};
-const START_ACCESSORIES=['Control remoto','Base / pie','Cable de alimentación','Cable HDMI','Soporte','Caja','Tornillos'];
-const START_FAILURES=['No enciende','No da imagen','Tiene sonido pero no imagen','Sin sonido','Líneas en pantalla','Pantalla rota','Reinicia constantemente','No conecta a WiFi','Problema de backlight','Falla de fuente','Falla de placa main'];
-const namesByType=type=>[...new Set([...(type==='accesorio'?START_ACCESSORIES:type==='falla'?START_FAILURES:[]),...catalog.filter(x=>x.tipo===type).map(x=>x.nombre),...(type==='marca'?orders.map(o=>o.marca).filter(Boolean):type==='modelo'?orders.map(o=>o.modelo).filter(Boolean):[])])].sort((a,b)=>a.localeCompare(b,'es'));
-const catalogKey=(type,name)=>type+'_'+String(name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase().trim().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,125);
-async function ensureCatalog(type,name){const n=String(name||'').trim();if(!n)return;if(n.length>90)throw Error('El nombre debe tener menos de 90 caracteres.');const id=catalogKey(type,n);if(!id.endsWith('_')&&id!==type+'_')await setDoc(doc(db,'catalogos',id),{tipo:type,nombre:n,updatedAt:serverTimestamp(),updatedBy:user.email},{merge:true});}
-function warnPopup(o,kind){try{openPrint(o,kind)}catch(e){err(e)}}
+let orders=[],clients=[],movements=[],catalog=[],cash=null,area='Entrada',page='ordenes',user=null,selectedClient=null,selectedEquipment=null,detailId=null,unsubs=[],processing=false,detailTab='general',chosenAccessories=new Set(),lastPrintedId=null,orderDraft=null,cashSessions=[],products=[],sales=[],stockAdjustments=[],saleCart=[],salePriceMode="lista",salePayments={Efectivo:0,Transferencia:0,QR:0,Posnet:0},saleSearch={caja:"",venta:""},settingsType="accesorio",settingsSearch="",settingsShowInactive=false;
+const namesByType=type=>activeCatalogNames(type,catalog,type==='marca'?orders.map(o=>o.marca).filter(Boolean):type==='modelo'?orders.map(o=>o.modelo).filter(Boolean):[]);
+async function ensureCatalog(type,name){const n=String(name||'').trim();if(!n)return;if(n.length>90)throw Error('El nombre debe tener menos de 90 caracteres.');const id=catalogKey(type,n);if(!id.endsWith('_')&&id!==type+'_')await setDoc(doc(db,'catalogos',id),{tipo:type,nombre:n,activo:true,updatedAt:serverTimestamp(),updatedBy:user.email},{merge:true});}
+function warnPopup(o,kind){try{const c=clientForOrder(o,clients);openPrint({...o,nombreCliente:c.nombre,dniCliente:c.dni,telefonoCliente:c.telefono,correoCliente:c.correo,direccionCliente:c.direccion},kind)}catch(e){err(e)}}
 
 const dateText=v=>v?.toDate?.()?.toLocaleString('es-AR')||'—';
 const fmtN=n=>String(n).padStart(6,'0');
@@ -20,11 +19,50 @@ const el=(s)=>document.createElement('div');
 const toast=(msg,bad=false)=>{const t=$('toast');t.textContent=msg;t.style.background=bad?'#a52e38':'#262a32';t.classList.remove('hidden');clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.add('hidden'),4300)};
 const err=e=>{console.error(e);toast(e?.message||'Ocurrió un error',true)};
 const busy=async(fn)=>{if(processing)return false;processing=true;try{await fn();return true}catch(e){err(e);return false}finally{processing=false}};
-const nav=(p)=>{page=p;document.querySelectorAll('.page').forEach(n=>n.classList.toggle('hidden',n.id!==`page-${p}`));document.querySelectorAll('.rail-nav').forEach(b=>b.classList.toggle('active',b.dataset.page===p));if(p==='caja')renderCash();if(p==='clientes')renderClients();if(p==='inventario')renderInventory();if(p==='estadisticas')renderStats();if(p==='venta'){renderSaleInterfaces();renderSales()}};
+const nav=(p)=>{page=p;document.querySelectorAll('.page').forEach(n=>n.classList.toggle('hidden',n.id!==`page-${p}`));document.querySelectorAll('.rail-nav').forEach(b=>b.classList.toggle('active',b.dataset.page===p));if(p==='caja')renderCash();if(p==='clientes')renderClients();if(p==='inventario')renderInventory();if(p==='estadisticas')renderStats();if(p==='venta'){renderSaleInterfaces();renderSales()}if(p==='configuracion')renderSettings()};
 const showDrawer=(title,body)=>{$('drawer-title').textContent=title;$('drawer-body').innerHTML=body;$('drawer').classList.remove('hidden');$('overlay').classList.remove('hidden')};
 const closeDrawer=()=>{$('drawer').classList.add('hidden');$('overlay').classList.add('hidden');detailId=null};
 const field=(title,val='')=>`<div class="field-card"><b>${safe(title)}</b><p>${safe(val)}</p></div>`;
 const statusPill=v=>`<span class="pill ${v==='Entregado'?'done':v==='Listo para retirar'?'ready':v==='En reparación'?'work':''}">${safe(v||'Sin estado')}</span>`;
+// Ficha de contacto completa: recupera el registro actual de Agenda, no solo los datos
+// que se copiaron cuando la orden fue creada o importada.
+function orderClientDetails(o){
+ const c=clientForOrder(o,clients),value=v=>v?String(v):'Sin registrar';
+ const items=[['Nombre y apellido',c.nombre],['DNI',c.dni],['Teléfono / WhatsApp',c.telefono],['Correo electrónico',c.correo],['Dirección',c.direccion]];
+ if(c.observaciones)items.push(['Observaciones del cliente',c.observaciones]);
+ return `<section class="drawer-section customer-block"><div class="customer-heading"><h3>Datos completos del cliente</h3><span class="customer-source">${c.encontrado?'Agenda actualizada':'Datos de la orden'}</span></div><div class="customer-grid">${items.map(([name,val])=>`<div class="customer-data"><span>${safe(name)}</span><strong>${safe(value(val))}</strong></div>`).join('')}</div>${c.requiereRevision?'<p class="notice" style="margin:12px 0 0">Cliente pendiente de confirmar sus datos personales.</p>':''}${!c.encontrado?'<p class="hint">No se encontró una ficha coincidente en Agenda. Se muestran los datos que conserva esta orden.</p>':''}</section>`;
+}
+function settingsItemHtml(item){
+ const label=item.activo?'Quitar':'Restaurar';
+ return `<div class="settings-item ${item.activo?'':'is-inactive'}"><div class="settings-item-name"><b>${safe(item.nombre)}</b><span class="hint">${item.activo?'Disponible al crear órdenes':'Oculto en órdenes nuevas'} · ${item.esInicial?'Opción inicial':'Personalizado'}</span></div><button type="button" class="btn ${item.activo?'muted':'blue'}" data-catalog-id="${safe(item.id)}" data-catalog-name="${safe(item.nombre)}" data-catalog-toggle="${item.activo?'off':'on'}">${label}</button></div>`;
+}
+function renderSettings(){
+ if(!$('settings-list'))return;
+ document.querySelectorAll('[data-settings-type]').forEach(b=>b.classList.toggle('active',b.dataset.settingsType===settingsType));
+ const options=catalogOptions(settingsType,catalog);
+ const active=options.filter(x=>x.activo),disabled=options.filter(x=>!x.activo);
+ $('settings-label').textContent=settingsType==='accesorio'?'Accesorios disponibles':'Fallas informadas disponibles';
+ $('settings-count').textContent=`${active.length} activas · ${disabled.length} ocultas`;
+ $('settings-show-inactive').checked=settingsShowInactive;
+ const filtered=options.filter(x=>(settingsShowInactive||x.activo)&&x.nombre.toLocaleLowerCase().includes(settingsSearch.toLocaleLowerCase()));
+ $('settings-list').innerHTML=filtered.length?filtered.map(settingsItemHtml).join(''):'<p class="hint">No hay opciones que coincidan con tu búsqueda.</p>';
+ $('settings-list').querySelectorAll('[data-catalog-toggle]').forEach(b=>b.onclick=()=>changeCatalogState(b.dataset.catalogId,b.dataset.catalogName,b.dataset.catalogToggle==='on'));
+}
+async function changeCatalogState(id,name,enabled){
+ const option=catalogOptions(settingsType,catalog).find(x=>x.id===id&&x.nombre===name);
+ if(!option)throw Error('La opción ya no existe en el catálogo.');
+ if(!enabled&&!confirm(`¿Quitar «${name}» de las opciones disponibles? Las órdenes anteriores conservarán este dato.`))return;
+ await busy(async()=>{
+  await setDoc(doc(db,'catalogos',id),{tipo:settingsType,nombre:name,activo:enabled,updatedAt:serverTimestamp(),updatedBy:user.email},{merge:true});
+  toast(enabled?'Opción restaurada.':'Opción quitada del selector. Las órdenes anteriores se mantienen.');
+ });
+}
+async function addSettingsOption(ev){
+ ev.preventDefault();const name=$('settings-add-name').value.trim();
+ if(!name||name.length>90)return toast('Ingresá un nombre de entre 1 y 90 caracteres.',true);
+ await busy(async()=>{await ensureCatalog(settingsType,name);$('settings-add-name').value='';toast('Opción agregada y disponible para próximas órdenes.');});
+}
+
 const STATUSES=['Sin estado','En diagnóstico','En reparación','Esperando repuesto','Esperando respuesta','Pasar presupuesto','Listo para retirar','Reparado','No reparado','Sin solución','Deposito','Entregado'];
 function renderOrders(){
  const statusSelect=$('filter-status'),statusSelected=statusSelect.value;
@@ -249,10 +287,11 @@ function newOrder(){
 function renderDetail(){
  const o=orders.find(x=>x.id===detailId);if(!o){closeDrawer();return}
  const done=o.estado==='Entregado';
+ const currentClient=clientForOrder(o,clients);
  const tabs=['general','diagnostico','historial'];
  $('drawer-title').textContent=`Orden N.º ${o.numero}`;
- $('drawer-body').innerHTML=`<div class="status-row"><div><b>${safe([o.marca,o.modelo].join(' '))}</b><p class="hint">${safe(o.nombreCliente)} · ${o.dniCliente?'DNI '+safe(o.dniCliente):'Sin DNI · verificar datos'}</p></div>${statusPill(o.estado)}</div>
- ${o.requiereRevisionCliente?'<div class="notice">Cliente importado pendiente de confirmar identidad y DNI.</div>':''}<div class="print-actions"><button class="btn ghost" id="print-entry">▤ Imprimir orden de ingreso + etiquetas</button><button class="btn ghost" id="print-pickup" ${done?'':'disabled title="Se habilita cuando se entrega el equipo"'}>▤ Imprimir constancia de retiro</button></div>
+ $('drawer-body').innerHTML=`<div class="status-row"><div><b>${safe([o.marca,o.modelo].join(' '))}</b><p class="hint">${safe(currentClient.nombre)} · ${currentClient.dni?'DNI '+safe(currentClient.dni):'Sin DNI · verificar datos'}</p></div>${statusPill(o.estado)}</div>
+ ${orderClientDetails(o)}<div class="print-actions"><button class="btn ghost" id="print-entry">▤ Imprimir orden de ingreso + etiquetas</button><button class="btn ghost" id="print-pickup" ${done?'':'disabled title="Se habilita cuando se entrega el equipo"'}>▤ Imprimir constancia de retiro</button></div>
  <div class="detail-tabs">${tabs.map(t=>`<button data-tab="${t}" class="${detailTab===t?'active':''}">${({general:'Orden',diagnostico:'Diagnóstico',historial:'Historial'})[t]}</button>`).join('')}</div><div id="detail-content"></div>`;
  $('print-entry').onclick=()=>warnPopup(o,'ingreso');
  $('print-pickup').onclick=()=>warnPopup(o,'retiro');
@@ -271,7 +310,7 @@ function renderDetail(){
  const estadoEquipo=o.estadoEquipo||'';
  const accesorios=Array.isArray(o.accesoriosLista)?o.accesoriosLista:(o.accesorios||'').split(',').map(a=>a.trim()).filter(Boolean);
  chosenAccessories=new Set(accesorios);
- body.innerHTML=`<div class="form-grid"><label class="span-2">Falla declarada<input id="edit-falla" value="${safe(o.falla||'')}" ${done?'disabled':''}></label><label class="span-2">Descripción de la falla<textarea id="edit-trabajo" ${done?'disabled':''}>${safe(o.trabajo||'')}</textarea></label>
+ body.innerHTML=`<div class="form-grid"><label class="span-2">Falla informada<select id="edit-falla" ${done?'disabled':''}><option value="">Seleccioná una falla</option>${[...new Set([...namesByType('falla'),o.falla].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es')).map(v=>`<option value="${safe(v)}" ${v===o.falla?'selected':''}>${safe(v)}</option>`).join('')}${!done?'<option value="__otra">＋ Nueva falla (escribir)</option>':''}</select></label>${!done?'<label class="span-2 hidden" id="edit-falla-otra-wrap">Nueva falla informada<input id="edit-falla-otra" maxlength="90" placeholder="Escribí una nueva falla"></label>':''}<label class="span-2">Descripción de la falla<textarea id="edit-trabajo" ${done?'disabled':''}>${safe(o.trabajo||'')}</textarea></label>
  <label class="span-2">Estado físico del equipo<textarea id="edit-estado-equipo" ${done?'disabled':''} placeholder="Rayones, golpes, falta de piezas…">${safe(estadoEquipo)}</textarea></label>
  <div class="span-2">${!done?`<h4 class="form-subheading">Accesorios ingresados</h4>${accessoryPickerHtml()}`:`${field('Accesorios',accesorios.join(', ')||'Sin accesorios')}`}</div>
  <label>Estado<select id="edit-estado" ${done?'disabled':''}>${[...new Set([...STATUSES,...orders.map(x=>x.estado).filter(Boolean)])].filter(s=>s!=='Entregado'||done).map(s=>`<option ${s===o.estado?'selected':''}>${s}</option>`).join('')}</select></label>
@@ -280,14 +319,18 @@ function renderDetail(){
  <label>Presupuesto ($)<input id="edit-presupuesto" type="number" min="0" step="0.01" value="${o.presupuesto??''}" ${done?'disabled':''} placeholder="Pendiente"></label></div>
  ${done?field('Fecha de entrega',dateText(o.entregadoAt)):`<div class="form-footer"><button id="save-detail" class="btn blue">Guardar cambios</button></div>`}
  <hr style="border:0;border-top:1px solid #e5e6e9;margin:25px 0"><div class="drawer-section"><h3>Entrega en mostrador</h3>
- ${done?`<div class="notice"><b>Equipo entregado.</b><p>Fecha: ${dateText(o.entregadoAt)}</p><p>Importe: ${money(o.presupuesto)} · ${Number(o.presupuesto)>0?'Cobro registrado una sola vez.':'Sin cargo.'}</p><p>Para imprimir la constancia de retiro, usá el botón de arriba.</p></div>`:`<p class="hint">Guardá primero el presupuesto. Para confirmar la entrega, el total de los medios de pago debe coincidir exactamente con el importe.</p><div class="form-grid" style="margin-bottom:14px"><label>Persona que retira<input id="retirante-nombre" value="${safe(o.nombreCliente||'')}" placeholder="Nombre y apellido"></label><label>DNI de quien retira<input id="retirante-dni" placeholder="Documento (si corresponde)"></label></div><div class="payments">${METHODS.map(m=>`<label>${m} ($)<input data-pay="${m}" type="number" min="0" step="0.01" value="0"></label>`).join('')}</div><p id="pay-total" class="hint">Total ingresado: ${money(0)}</p><button id="deliver" class="btn primary full">Confirmar cobro y entrega</button>`}</div>`;
+ ${done?`<div class="notice"><b>Equipo entregado.</b><p>Fecha: ${dateText(o.entregadoAt)}</p><p>Importe: ${money(o.presupuesto)} · ${Number(o.presupuesto)>0?'Cobro registrado una sola vez.':'Sin cargo.'}</p><p>Para imprimir la constancia de retiro, usá el botón de arriba.</p></div>`:`<p class="hint">Guardá primero el presupuesto. Para confirmar la entrega, el total de los medios de pago debe coincidir exactamente con el importe.</p><div class="form-grid" style="margin-bottom:14px"><label>Persona que retira<input id="retirante-nombre" value="${safe(currentClient.nombre||'')}" placeholder="Nombre y apellido"></label><label>DNI de quien retira<input id="retirante-dni" placeholder="Documento (si corresponde)"></label></div><div class="payments">${METHODS.map(m=>`<label>${m} ($)<input data-pay="${m}" type="number" min="0" step="0.01" value="0"></label>`).join('')}</div><p id="pay-total" class="hint">Total ingresado: ${money(0)}</p><button id="deliver" class="btn primary full">Confirmar cobro y entrega</button>`}</div>`;
  if(!done){
    bindAccessories();
-   $('save-detail').onclick=()=>{
+   $('edit-falla').onchange=()=>{$('edit-falla-otra-wrap').classList.toggle('hidden',$('edit-falla').value!=='__otra')};
+   $('save-detail').onclick=async()=>{
      const p=$('edit-presupuesto').value,acc=[...chosenAccessories].sort();
+     const newFailure=$('edit-falla').value==='__otra'?$('edit-falla-otra').value.trim():$('edit-falla').value;
+     if(!newFailure)return toast('Seleccioná una falla informada.',true);
+     if($('edit-falla').value==='__otra'){try{await ensureCatalog('falla',newFailure)}catch(e){return err(e)}}
      updateOrder({estado:$('edit-estado').value,area:$('edit-area').value,
        responsable:$('edit-responsable').value.trim(),presupuesto:p===''?null:Number(p),
-       falla:$('edit-falla').value.trim(),trabajo:$('edit-trabajo').value.trim(),
+       falla:newFailure,trabajo:$('edit-trabajo').value.trim(),
        estadoEquipo:$('edit-estado-equipo').value.trim(),accesoriosLista:acc,accesorios:acc.join(', ')});
    };
    const ps=()=>Object.fromEntries(METHODS.map(m=>[m,Number(document.querySelector(`[data-pay="${m}"]`).value||0)]));
@@ -298,10 +341,10 @@ function renderDetail(){
 function showOrder(id){detailId=id;detailTab='general';showDrawer('Orden de trabajo','');renderDetail()}
 async function updateOrder(partial){const id=detailId;await busy(async()=>{const r=doc(db,'ordenes',id);await runTransaction(db,async tx=>{const s=await tx.get(r);if(!s.exists())throw Error('La orden no existe.');if(s.data().estado==='Entregado')throw Error('No se pueden modificar órdenes entregadas.');if(partial.presupuesto!==undefined&&partial.presupuesto!==null&&(!Number.isFinite(partial.presupuesto)||partial.presupuesto<0))throw Error('Presupuesto inválido.');tx.update(r,{...partial,updatedAt:serverTimestamp(),updatedBy:user.email})});toast('Cambios guardados')})}
 async function deliverOrder(id,pagos,retirante={}){await busy(async()=>{const orderRef=doc(db,'ordenes',id),movementRef=doc(db,'movimientos','retiro_'+id);await runTransaction(db,async tx=>{const orderS=await tx.get(orderRef);const cashS=await tx.get(refs.cash);const movementS=await tx.get(movementRef);const cajaRef=cashS.exists()&&cashS.data().open?doc(db,'cajas',cashS.data().id):null;const cajaSnap=cajaRef?await tx.get(cajaRef):null;if(movementS.exists())throw Error('Esta orden ya tiene un movimiento de cobro.');const order=orderS.exists()?orderS.data():null;const cajaAbierta=cashS.exists()&&cashS.data().open;const monto=validateDelivery(order,pagos,{openCash:cajaAbierta});if(monto>0){if(!cajaSnap?.exists()||cajaSnap.data().estado!=='abierta')throw Error('El turno de Caja está cerrado.');tx.update(cajaRef,cashDelta('ingreso',pagos,monto));tx.set(movementRef,{cajaId:cashS.data().id,tipo:'ingreso',origen:'retiro_orden',ordenId:id,numeroOrden:order.numero,concepto:'Retiro de orden N.º '+order.numero,monto,pagos,usuario:user.email,createdAt:serverTimestamp()});}tx.update(orderRef,{estado:'Entregado',area:'Salida',entregadoAt:serverTimestamp(),responsableEntrega:user.email,entregadoA:String(retirante.nombre||'').slice(0,120),dniRetiro:normalizeDni(retirante.dni||''),deliveryId:id,pagosEntrega:pagos,movimientoCajaId:monto>0?movementRef.id:null});});toast('Equipo entregado. Ya podés imprimir la constancia de retiro.');detailId=id;renderDetail()})}
-function listen(){unsubs.forEach(f=>f());unsubs=[];unsubs.push(onSnapshot(query(collection(db,'ordenes'),limit(1000)),s=>{orders=s.docs.map(d=>({id:d.id,...d.data()}));renderOrders();if(detailId)renderDetail()},err));unsubs.push(onSnapshot(query(collection(db,'clientes'),limit(1500)),s=>{clients=s.docs.map(d=>({id:d.id,...d.data()}));renderClients()},err));unsubs.push(onSnapshot(refs.cash,s=>{cash=s.exists()?s.data():null;renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'movimientos'),limit(5000)),s=>{movements=s.docs.map(d=>({id:d.id,...d.data()}));renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'catalogos'),limit(1500)),s=>{catalog=s.docs.map(d=>({id:d.id,...d.data()}));drawAccessoryOptions()},err));unsubs.push(onSnapshot(query(collection(db,'cajas'),limit(1000)),s=>{cashSessions=s.docs.map(d=>({id:d.id,...d.data()}));renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'productos'),limit(2000)),s=>{products=s.docs.map(d=>({id:d.id,...d.data()}));renderInventory();renderSaleInterfaces()},err));unsubs.push(onSnapshot(query(collection(db,'ventas'),limit(1500)),s=>{sales=s.docs.map(d=>({id:d.id,...d.data()}));renderSales()},err));unsubs.push(onSnapshot(query(collection(db,'ajustesStock'),limit(1000)),s=>{stockAdjustments=s.docs.map(d=>({id:d.id,...d.data()}));renderStockAdjustments()},err));}
+function listen(){unsubs.forEach(f=>f());unsubs=[];unsubs.push(onSnapshot(query(collection(db,'ordenes'),limit(1000)),s=>{orders=s.docs.map(d=>({id:d.id,...d.data()}));renderOrders();if(detailId)renderDetail()},err));unsubs.push(onSnapshot(query(collection(db,'clientes'),limit(1500)),s=>{clients=s.docs.map(d=>({id:d.id,...d.data()}));renderClients();if(detailId)renderDetail()},err));unsubs.push(onSnapshot(refs.cash,s=>{cash=s.exists()?s.data():null;renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'movimientos'),limit(5000)),s=>{movements=s.docs.map(d=>({id:d.id,...d.data()}));renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'catalogos'),limit(1500)),s=>{catalog=s.docs.map(d=>({id:d.id,...d.data()}));drawAccessoryOptions();renderSettings()},err));unsubs.push(onSnapshot(query(collection(db,'cajas'),limit(1000)),s=>{cashSessions=s.docs.map(d=>({id:d.id,...d.data()}));renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'productos'),limit(2000)),s=>{products=s.docs.map(d=>({id:d.id,...d.data()}));renderInventory();renderSaleInterfaces()},err));unsubs.push(onSnapshot(query(collection(db,'ventas'),limit(1500)),s=>{sales=s.docs.map(d=>({id:d.id,...d.data()}));renderSales()},err));unsubs.push(onSnapshot(query(collection(db,'ajustesStock'),limit(1000)),s=>{stockAdjustments=s.docs.map(d=>({id:d.id,...d.data()}));renderStockAdjustments()},err));}
 $('today').textContent=new Date().toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'});
 $('login-form').onsubmit=e=>{e.preventDefault();$('login-error').textContent='';signInWithEmailAndPassword(auth,$('login-email').value.trim(),$('login-pass').value).catch(e=>$('login-error').textContent='No se pudo ingresar. Verificá usuario, contraseña y Authentication.')};
-onAuthStateChanged(auth,u=>{user=u;if(u){$('login').classList.add('hidden');$('app').classList.remove('hidden');$('user-name').textContent=u.email;$('user-dot').textContent=(u.email||'S')[0].toUpperCase();listen()}else{unsubs.forEach(f=>f());unsubs=[];orders=[];clients=[];movements=[];catalog=[];cashSessions=[];products=[];sales=[];stockAdjustments=[];saleCart=[];cash=null;$('login').classList.remove('hidden');$('app').classList.add('hidden');closeDrawer()}});
+onAuthStateChanged(auth,u=>{user=u;if(u){$('login').classList.add('hidden');$('app').classList.remove('hidden');$('user-name').textContent=u.email;$('user-dot').textContent=(u.email||'S')[0].toUpperCase();listen()}else{unsubs.forEach(f=>f());unsubs=[];orders=[];clients=[];movements=[];catalog=[];cashSessions=[];products=[];sales=[];stockAdjustments=[];saleCart=[];cash=null;settingsType='accesorio';settingsSearch='';settingsShowInactive=false;$('login').classList.remove('hidden');$('app').classList.add('hidden');closeDrawer()}});
 $('logout').onclick=()=>signOut(auth).catch(err);
 document.querySelectorAll('.rail-nav').forEach(b=>b.onclick=()=>nav(b.dataset.page));document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{area=b.dataset.area;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));renderOrders()});
 $('search-orders').oninput=renderOrders;$('search-orders').onkeydown=e=>{if(e.key!=='Enter')return;const v=$('search-orders').value.trim();const target=orders.find(o=>o.numero===v||o.numero===v.padStart(6,'0'));if(target){e.preventDefault();showOrder(target.id)}};$('filter-status').onchange=renderOrders;$('search-clients').oninput=renderClients;$('new-order').onclick=()=>{selectedClient=null;orderDraft=null;newOrder()};$('new-client-main').onclick=()=>newClient();$('drawer-close').onclick=closeDrawer;$('overlay').onclick=closeDrawer;$('refresh').onclick=()=>{renderOrders();toast('La lista se actualiza automáticamente desde Firebase')};$('open-cash').onclick=openCash;$('close-cash').onclick=closeCash;
@@ -317,3 +360,10 @@ renderSaleInterfaces();renderInventory();renderStats();
 
 $('export-sales').onclick=()=>downloadCSV('syx_ventas.csv',[['Fecha','Caja','Productos','Cantidad','Importe','Efectivo','Transferencia','QR','Posnet','Usuario'],...sales.map(v=>[csvDate(v.createdAt),v.cajaId,(v.items||[]).map(x=>x.sku+' x'+x.cantidad).join(', '),(v.items||[]).reduce((n,x)=>n+Number(x.cantidad),0),v.total,...PAY_METHODS.map(k=>v.pagos?.[k]||0),v.usuario])]);
 renderSales();renderStockAdjustments();
+
+// Configuración de accesorios y fallas informadas; no borra registros históricos.
+document.querySelectorAll('[data-settings-type]').forEach(b=>b.onclick=()=>{settingsType=b.dataset.settingsType;settingsSearch='';$('settings-search').value='';renderSettings()});
+$('settings-search').oninput=()=>{settingsSearch=$('settings-search').value.trim();renderSettings()};
+$('settings-show-inactive').onchange=()=>{settingsShowInactive=$('settings-show-inactive').checked;renderSettings()};
+$('settings-add-form').onsubmit=addSettingsOption;
+renderSettings();

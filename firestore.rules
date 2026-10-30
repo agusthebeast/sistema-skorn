@@ -15,6 +15,7 @@ service cloud.firestore {
         && request.resource.data.nombre is string
         && request.resource.data.nombre.size() > 0
         && request.resource.data.nombre.size() <= 90
+        && (!('activo' in request.resource.data) || request.resource.data.activo is bool)
         && request.resource.data.updatedBy == request.auth.token.email
         && (!exists(/databases/$(database)/documents/catalogos/$(catalogId))
           || request.resource.data.tipo == resource.data.tipo);
