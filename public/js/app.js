@@ -6,9 +6,10 @@ import {openPrint} from './print.js';
 import {PAY_METHODS,cents,fromCents,normalizeSku,validSku,ensurePaymentTotal,saleTotal,summarizeMovements,paymentStats,emptySummary,movementBreakdown} from './finance.js';
 import {catalogKey,catalogOptions,activeCatalogNames} from './catalog-utils.js';
 import {clientForOrder} from './client-utils.js';
+import {ordersForClient,isProvisionalClient,validateClientEdit} from './client-history-utils.js';
 const $=id=>document.getElementById(id);
 const refs={cash:doc(db,'config','cajaActual'),counter:doc(db,'config','contadores')};
-let orders=[],clients=[],movements=[],catalog=[],cash=null,area='Entrada',page='ordenes',user=null,selectedClient=null,selectedEquipment=null,detailId=null,unsubs=[],processing=false,detailTab='general',chosenAccessories=new Set(),lastPrintedId=null,orderDraft=null,cashSessions=[],products=[],sales=[],stockAdjustments=[],saleCart=[],salePriceMode="lista",salePayments={Efectivo:0,Transferencia:0,QR:0,Posnet:0},saleSearch={caja:"",venta:""},settingsType="accesorio",settingsSearch="",settingsShowInactive=false;
+let orders=[],clients=[],movements=[],catalog=[],cash=null,area='Entrada',page='ordenes',user=null,selectedClient=null,selectedEquipment=null,detailId=null,unsubs=[],processing=false,detailTab='general',chosenAccessories=new Set(),lastPrintedId=null,orderDraft=null,cashSessions=[],products=[],sales=[],stockAdjustments=[],saleCart=[],salePriceMode="lista",salePayments={Efectivo:0,Transferencia:0,QR:0,Posnet:0},saleSearch={caja:"",venta:""},settingsType="accesorio",settingsSearch="",settingsShowInactive=false,detailClientId=null,clientDrawerMode='view';
 const namesByType=type=>activeCatalogNames(type,catalog,type==='marca'?orders.map(o=>o.marca).filter(Boolean):type==='modelo'?orders.map(o=>o.modelo).filter(Boolean):[]);
 async function ensureCatalog(type,name){const n=String(name||'').trim();if(!n)return;if(n.length>90)throw Error('El nombre debe tener menos de 90 caracteres.');const id=catalogKey(type,n);if(!id.endsWith('_')&&id!==type+'_')await setDoc(doc(db,'catalogos',id),{tipo:type,nombre:n,activo:true,updatedAt:serverTimestamp(),updatedBy:user.email},{merge:true});}
 function warnPopup(o,kind){try{const c=clientForOrder(o,clients);openPrint({...o,nombreCliente:c.nombre,dniCliente:c.dni,telefonoCliente:c.telefono,correoCliente:c.correo,direccionCliente:c.direccion},kind)}catch(e){err(e)}}
@@ -20,8 +21,8 @@ const toast=(msg,bad=false)=>{const t=$('toast');t.textContent=msg;t.style.backg
 const err=e=>{console.error(e);toast(e?.message||'Ocurrió un error',true)};
 const busy=async(fn)=>{if(processing)return false;processing=true;try{await fn();return true}catch(e){err(e);return false}finally{processing=false}};
 const nav=(p)=>{page=p;document.querySelectorAll('.page').forEach(n=>n.classList.toggle('hidden',n.id!==`page-${p}`));document.querySelectorAll('.rail-nav').forEach(b=>b.classList.toggle('active',b.dataset.page===p));if(p==='caja')renderCash();if(p==='clientes')renderClients();if(p==='inventario')renderInventory();if(p==='estadisticas')renderStats();if(p==='venta'){renderSaleInterfaces();renderSales()}if(p==='configuracion')renderSettings()};
-const showDrawer=(title,body)=>{$('drawer-title').textContent=title;$('drawer-body').innerHTML=body;$('drawer').classList.remove('hidden');$('overlay').classList.remove('hidden')};
-const closeDrawer=()=>{$('drawer').classList.add('hidden');$('overlay').classList.add('hidden');detailId=null};
+const showDrawer=(title,body)=>{detailClientId=null;$('drawer-title').textContent=title;$('drawer-body').innerHTML=body;$('drawer').classList.remove('hidden');$('overlay').classList.remove('hidden')};
+const closeDrawer=()=>{$('drawer').classList.add('hidden');$('overlay').classList.add('hidden');detailId=null;detailClientId=null;clientDrawerMode='view'};
 const field=(title,val='')=>`<div class="field-card"><b>${safe(title)}</b><p>${safe(val)}</p></div>`;
 const statusPill=v=>`<span class="pill ${v==='Entregado'?'done':v==='Listo para retirar'?'ready':v==='En reparación'?'work':''}">${safe(v||'Sin estado')}</span>`;
 // Ficha de contacto completa: recupera el registro actual de Agenda, no solo los datos
@@ -75,10 +76,79 @@ function renderOrders(){
 const q=$('search-orders').value.trim().toLowerCase(),stat=$('filter-status').value;
 let filtered=orders.filter(o=>(area==='Todas'||o.area===area)&&(!stat||o.estado===stat)&&(!q||[o.numero,o.nombreCliente,o.dniCliente,o.modelo,o.marca,o.responsable,o.serie,o.falla].join(' ').toLowerCase().includes(q)));
 filtered.sort((a,b)=>Number(b.numero||0)-Number(a.numero||0));$('orders-foot').textContent=`Cantidad: ${filtered.length} órdenes`;
-$('orders-table').innerHTML=filtered.length?filtered.map(o=>`<tr class="order-row" data-id="${safe(o.id)}"><td><b>${safe(o.numero)}</b></td><td>${statusPill(o.estado)}</td><td>${safe([o.marca,o.modelo].filter(Boolean).join(' '))}</td><td>${safe(o.nombreCliente)}</td><td>${safe(o.responsable||'Sin asignar')}</td><td>${o.presupuesto===null||o.presupuesto===undefined?'Pendiente':money(o.presupuesto)}</td><td><button type="button" class="mini" data-id="${safe(o.id)}">Ver / Imprimir</button></td></tr>`).join(''):'<tr><td colspan="7">No se encontraron órdenes para este filtro.</td></tr>';
+$('orders-table').innerHTML=filtered.length?filtered.map(o=>`<tr class="order-row" data-id="${safe(o.id)}"><td><b>${safe(o.numero)}</b></td><td>${statusPill(o.estado)}</td><td>${safe([o.marca,o.modelo].filter(Boolean).join(' '))}</td><td>${safe(o.nombreCliente)}</td><td>${safe(o.responsable||'Sin asignar')}</td><td>${o.presupuesto===null||o.presupuesto===undefined?'Pendiente':money(o.presupuesto)}</td><td><button type="button" class="mini icon-action" data-id="${safe(o.id)}"><span class="material-symbols-outlined" aria-hidden="true">visibility</span> Ver / Imprimir</button></td></tr>`).join(''):'<tr><td colspan="7">No se encontraron órdenes para este filtro.</td></tr>';
 $('orders-table').querySelectorAll('[data-id]').forEach(n=>n.addEventListener('click',()=>showOrder(n.dataset.id)));
 }
-function renderClients(){let q=$('search-clients').value.trim().toLowerCase();let rows=clients.filter(c=>[c.nombre,c.dni,c.telefono,c.correo].join(' ').toLowerCase().includes(q));$('clients-table').innerHTML=rows.length?rows.map(c=>`<tr><td>${safe(c.nombre)}</td><td>${safe(c.dni||'Sin DNI · revisar')}</td><td>${safe(c.telefono)}</td><td>${safe(c.direccion)}</td></tr>`).join(''):'<tr><td colspan="4">Sin clientes.</td></tr>'}
+function renderClients(){
+ const q=$('search-clients').value.trim().toLocaleLowerCase('es-AR');
+ const rows=clients.filter(c=>[c.nombre,c.dni,c.telefono,c.celular,c.correo,c.email,c.direccion].join(' ').toLocaleLowerCase('es-AR').includes(q)).sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||''),'es'));
+ $('clients-table').innerHTML=rows.length?rows.map(c=>`<tr><td><b>${safe(c.nombre)}</b></td><td>${safe(c.dni||'Sin DNI · revisar')}</td><td>${safe(c.telefono||c.celular||'—')}</td><td>${safe(c.direccion||c.domicilio||'—')}</td><td><button type="button" class="mini icon-action" data-view-client="${safe(c.id)}" aria-label="Ver ficha de ${safe(c.nombre)}"><span class="material-symbols-outlined" aria-hidden="true">visibility</span> Ver</button></td></tr>`).join(''):'<tr><td colspan="5">Sin clientes.</td></tr>';
+ $('clients-table').querySelectorAll('[data-view-client]').forEach(b=>b.onclick=()=>showClient(b.dataset.viewClient));
+}
+function showClient(id){
+ if(!clients.some(c=>c.id===id))return toast('No se encontró el cliente.',true);
+ detailId=null;
+ clientDrawerMode='view';
+ showDrawer('Ficha del cliente','');
+ detailClientId=id;
+ renderClientDetail();
+}
+function renderClientDetail(){
+ if(!detailClientId)return;
+ const c=clients.find(x=>x.id===detailClientId);
+ if(!c){closeDrawer();toast('La ficha del cliente ya no está disponible.',true);return}
+ if(clientDrawerMode==='edit'){renderClientEdit(c);return}
+ $('drawer-title').textContent='Cliente · '+(c.nombre||'Sin nombre');
+ const history=ordersForClient(c,orders);
+ const fields=[['Nombre y apellido',c.nombre],['DNI',c.dni],['Teléfono / WhatsApp',c.telefono||c.celular],['Correo electrónico',c.correo||c.email],['Dirección',c.direccion||c.domicilio],['Observaciones',c.observaciones]];
+ $('drawer-body').innerHTML=`<section class="customer-block client-profile"><div class="customer-heading"><h3>Datos del cliente</h3><button class="btn blue client-edit-trigger" type="button" id="client-edit"><span>Editar datos</span></button></div><div class="customer-grid">${fields.map(([label,val])=>`<div class="customer-data"><span>${safe(label)}</span><strong>${safe(val||'Sin registrar')}</strong></div>`).join('')}</div>${isProvisionalClient(c)?'<p class="notice client-notice">Este cliente aún no tiene DNI registrado. Podés completarlo desde Editar después de verificarlo.</p>':''}</section>
+ <section class="client-orders"><div class="client-orders-head"><h3><span class="material-symbols-outlined" aria-hidden="true">history</span> Historial de órdenes de trabajo</h3><span class="client-order-count">${history.length} ${history.length===1?'orden':'órdenes'}</span></div><p class="hint">Se muestran las órdenes asociadas al cliente, incluidas las entregadas y las importadas.</p>${history.length?`<div class="client-order-list">${history.map(o=>`<div class="client-order-item"><div class="client-order-main"><b>Orden N.º ${safe(o.numero||'—')}</b> ${statusPill(o.estado)}<small>${safe([o.marca,o.modelo].filter(Boolean).join(' ')||'Equipo sin especificar')} · ${safe(o.falla||o.trabajo||'Sin falla informada')}</small><small>Ingreso: ${safe(dateText(o.createdAt))} · ${safe(o.area||'Área sin definir')}</small></div><button type="button" class="mini icon-action" data-client-order="${safe(o.id)}" aria-label="Ver orden ${safe(o.numero)}"><span class="material-symbols-outlined" aria-hidden="true">visibility</span> Ver</button></div>`).join('')}</div>`:'<div class="client-orders-empty">Este cliente todavía no tiene órdenes de trabajo registradas.</div>'}</section>`;
+ $('client-edit').onclick=()=>{clientDrawerMode='edit';renderClientEdit(c)};
+ $('drawer-body').querySelectorAll('[data-client-order]').forEach(b=>b.onclick=()=>showOrder(b.dataset.clientOrder));
+}
+function renderClientEdit(c){
+ if(detailClientId!==c.id)return;
+ clientDrawerMode='edit';
+ $('drawer-title').textContent='Editar · '+(c.nombre||'Cliente');
+ const provisional=isProvisionalClient(c);
+ $('drawer-body').innerHTML=`<section class="client-profile-edit"><p class="hint">Actualizá los datos de la agenda. Las órdenes anteriores y el historial del cliente se conservan.</p><form id="client-edit-form" class="form-grid">
+ <label class="span-2">Nombre y apellido *<input id="client-edit-name" maxlength="180" value="${safe(c.nombre||'')}" required></label>
+ <label>DNI ${provisional?'(completar si está verificado)':'(no modificable)'}<input id="client-edit-dni" inputmode="numeric" maxlength="14" value="${safe(c.dni||'')}" ${provisional?'':'readonly'}></label>
+ <label>Teléfono / WhatsApp<input id="client-edit-phone" maxlength="80" value="${safe(c.telefono||c.celular||'')}"></label>
+ <label class="span-2">Correo electrónico<input id="client-edit-email" maxlength="180" type="email" value="${safe(c.correo||c.email||'')}"></label>
+ <label class="span-2">Dirección<input id="client-edit-address" maxlength="300" value="${safe(c.direccion||c.domicilio||'')}"></label>
+ <label class="span-2">Observaciones<textarea id="client-edit-notes" maxlength="1200" rows="4">${safe(c.observaciones||'')}</textarea></label>
+ <div class="span-2 form-footer"><button id="client-edit-cancel" class="btn muted" type="button">Cancelar</button><button id="client-edit-save" class="btn blue" type="submit">Guardar cambios</button></div></form></section>`;
+ $('client-edit-cancel').onclick=()=>{clientDrawerMode='view';renderClientDetail()};
+ $('client-edit-form').onsubmit=async ev=>{
+  ev.preventDefault();
+  let data;
+  try{data=validateClientEdit({nombre:$('client-edit-name').value,dni:$('client-edit-dni').value,telefono:$('client-edit-phone').value,correo:$('client-edit-email').value,direccion:$('client-edit-address').value,observaciones:$('client-edit-notes').value},c)}catch(e){return toast(e.message,true)}
+  const saveButton=$('client-edit-save');saveButton.disabled=true;
+  const saved=await busy(async()=>{
+    if(data.dni && clients.some(x=>x.id!==c.id&&normalizeDni(x.dni)===data.dni))throw Error('Ese DNI ya figura en otro cliente. No se guardó nada.');
+    const clientRef=doc(db,'clientes',c.id);
+    await runTransaction(db,async tx=>{
+      const snap=await tx.get(clientRef);
+      if(!snap.exists())throw Error('El cliente ya no existe en la agenda.');
+      const old={id:c.id,...snap.data()};
+      // Si otra persona modificó el DNI, se debe volver a abrir la ficha.
+      if(normalizeDni(old.dni)!==normalizeDni(c.dni))throw Error('El DNI fue actualizado por otra persona. Reabrí la ficha.');
+      if(!isProvisionalClient(old)&&normalizeDni(old.dni)!==data.dni)throw Error('El DNI de este cliente no se puede modificar.');
+      if(isProvisionalClient(old)&&data.dni){
+        const otherRef=doc(db,'clientes',data.dni),other=await tx.get(otherRef);
+        if(other.exists())throw Error('Ese DNI ya está registrado en otra ficha.');
+      }
+      const patch={nombre:data.nombre,telefono:data.telefono,correo:data.correo,direccion:data.direccion,observaciones:data.observaciones,updatedAt:serverTimestamp(),updatedBy:user.email};
+      if(isProvisionalClient(old)&&data.dni){Object.assign(patch,{dni:data.dni,importadoSinDni:false,dniVinculadoPor:user.email,dniVinculadoAt:serverTimestamp()})}
+      tx.update(clientRef,patch);
+    });
+    clientDrawerMode='view';toast('Datos del cliente actualizados.');
+  });
+  if(saved){renderClientDetail()}else if($('client-edit-save')){$('client-edit-save').disabled=false}
+ };
+}
+
 // ---- Caja, historial, estadísticas y pagos de ventas / V3 ----
 function cashDelta(tipo,pagos,monto){
  const dir=tipo==='ingreso'?'Ingresos':'Egresos';
@@ -108,7 +178,7 @@ function renderCash(){
 }
 function renderCashHistory(){
  const rows=[...cashSessions].sort((a,b)=>timeValue(b.abiertaAt)-timeValue(a.abiertaAt));
- $('cash-history-table').innerHTML=rows.length?rows.map(c=>{const s=sessionSummary(c),cashNet=(s.efectivoIngresos||0)-(s.efectivoEgresos||0),digitalNet=(s.digitalIngresos||0)-(s.digitalEgresos||0);return `<tr><td>${dateText(c.abiertaAt)}<small class="sub-cell">${safe(c.abiertaPor||'')}</small></td><td>${dateText(c.cerradaAt)}<small class="sub-cell">${safe(c.cerradaPor||'')}</small></td><td>${statusPill(c.estado==='cerrada'?'Entregado':'En reparación').replace(c.estado==='cerrada'?'Entregado':'En reparación',c.estado==='cerrada'?'Cerrada':'Abierta')}</td><td>${money(cashNet)}</td><td>${money(digitalNet)}</td><td><b>${money((s.ingresos||0)-(s.egresos||0))}</b></td><td><button class="mini" data-cash-id="${safe(c.id)}">Ver detalle</button></td></tr>`}).join(''):'<tr><td colspan="7">Todavía no hay cajas registradas.</td></tr>';
+ $('cash-history-table').innerHTML=rows.length?rows.map(c=>{const s=sessionSummary(c),cashNet=(s.efectivoIngresos||0)-(s.efectivoEgresos||0),digitalNet=(s.digitalIngresos||0)-(s.digitalEgresos||0);return `<tr><td>${dateText(c.abiertaAt)}<small class="sub-cell">${safe(c.abiertaPor||'')}</small></td><td>${dateText(c.cerradaAt)}<small class="sub-cell">${safe(c.cerradaPor||'')}</small></td><td>${statusPill(c.estado==='cerrada'?'Entregado':'En reparación').replace(c.estado==='cerrada'?'Entregado':'En reparación',c.estado==='cerrada'?'Cerrada':'Abierta')}</td><td>${money(cashNet)}</td><td>${money(digitalNet)}</td><td><b>${money((s.ingresos||0)-(s.egresos||0))}</b></td><td><button class="mini icon-action" data-cash-id="${safe(c.id)}"><span class="material-symbols-outlined" aria-hidden="true">visibility</span> Ver detalle</button></td></tr>`}).join(''):'<tr><td colspan="7">Todavía no hay cajas registradas.</td></tr>';
  $('cash-history-table').querySelectorAll('[data-cash-id]').forEach(b=>b.onclick=()=>showCashHistory(b.dataset.cashId));
 }
 async function showCashHistory(id){
@@ -300,7 +370,7 @@ function renderDetail(){
  if(detailTab==='historial'){
    const same=orders.filter(x=>x.equipoId&&x.equipoId===o.equipoId&&x.id!==o.id).sort((a,b)=>Number(b.numero)-Number(a.numero));
    body.innerHTML=field('Creada',dateText(o.createdAt))+field('Estado actual',o.estado)+field('Entregada',dateText(o.entregadoAt))+field('Responsable de entrega',o.responsableEntrega||'—')+
-    `<h3>Historial del mismo equipo</h3>`+(same.length?same.map(x=>`<button class="select-item full-history" data-order="${safe(x.id)}">Orden ${safe(x.numero)} · ${safe(x.trabajo)} · ${safe(x.estado)}</button>`).join(''):'<p class="hint">No hay otras órdenes registradas de este equipo.</p>');
+    `<h3 class="section-title-icon"><span class="material-symbols-outlined" aria-hidden="true">history</span> Historial del mismo equipo</h3>`+(same.length?same.map(x=>`<button class="select-item full-history" data-order="${safe(x.id)}">Orden ${safe(x.numero)} · ${safe(x.trabajo)} · ${safe(x.estado)}</button>`).join(''):'<p class="hint">No hay otras órdenes registradas de este equipo.</p>');
    body.querySelectorAll('[data-order]').forEach(b=>b.onclick=()=>showOrder(b.dataset.order));return;
  }
  if(detailTab==='diagnostico'){
@@ -341,12 +411,12 @@ function renderDetail(){
 function showOrder(id){detailId=id;detailTab='general';showDrawer('Orden de trabajo','');renderDetail()}
 async function updateOrder(partial){const id=detailId;await busy(async()=>{const r=doc(db,'ordenes',id);await runTransaction(db,async tx=>{const s=await tx.get(r);if(!s.exists())throw Error('La orden no existe.');if(s.data().estado==='Entregado')throw Error('No se pueden modificar órdenes entregadas.');if(partial.presupuesto!==undefined&&partial.presupuesto!==null&&(!Number.isFinite(partial.presupuesto)||partial.presupuesto<0))throw Error('Presupuesto inválido.');tx.update(r,{...partial,updatedAt:serverTimestamp(),updatedBy:user.email})});toast('Cambios guardados')})}
 async function deliverOrder(id,pagos,retirante={}){await busy(async()=>{const orderRef=doc(db,'ordenes',id),movementRef=doc(db,'movimientos','retiro_'+id);await runTransaction(db,async tx=>{const orderS=await tx.get(orderRef);const cashS=await tx.get(refs.cash);const movementS=await tx.get(movementRef);const cajaRef=cashS.exists()&&cashS.data().open?doc(db,'cajas',cashS.data().id):null;const cajaSnap=cajaRef?await tx.get(cajaRef):null;if(movementS.exists())throw Error('Esta orden ya tiene un movimiento de cobro.');const order=orderS.exists()?orderS.data():null;const cajaAbierta=cashS.exists()&&cashS.data().open;const monto=validateDelivery(order,pagos,{openCash:cajaAbierta});if(monto>0){if(!cajaSnap?.exists()||cajaSnap.data().estado!=='abierta')throw Error('El turno de Caja está cerrado.');tx.update(cajaRef,cashDelta('ingreso',pagos,monto));tx.set(movementRef,{cajaId:cashS.data().id,tipo:'ingreso',origen:'retiro_orden',ordenId:id,numeroOrden:order.numero,concepto:'Retiro de orden N.º '+order.numero,monto,pagos,usuario:user.email,createdAt:serverTimestamp()});}tx.update(orderRef,{estado:'Entregado',area:'Salida',entregadoAt:serverTimestamp(),responsableEntrega:user.email,entregadoA:String(retirante.nombre||'').slice(0,120),dniRetiro:normalizeDni(retirante.dni||''),deliveryId:id,pagosEntrega:pagos,movimientoCajaId:monto>0?movementRef.id:null});});toast('Equipo entregado. Ya podés imprimir la constancia de retiro.');detailId=id;renderDetail()})}
-function listen(){unsubs.forEach(f=>f());unsubs=[];unsubs.push(onSnapshot(query(collection(db,'ordenes'),limit(1000)),s=>{orders=s.docs.map(d=>({id:d.id,...d.data()}));renderOrders();if(detailId)renderDetail()},err));unsubs.push(onSnapshot(query(collection(db,'clientes'),limit(1500)),s=>{clients=s.docs.map(d=>({id:d.id,...d.data()}));renderClients();if(detailId)renderDetail()},err));unsubs.push(onSnapshot(refs.cash,s=>{cash=s.exists()?s.data():null;renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'movimientos'),limit(5000)),s=>{movements=s.docs.map(d=>({id:d.id,...d.data()}));renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'catalogos'),limit(1500)),s=>{catalog=s.docs.map(d=>({id:d.id,...d.data()}));drawAccessoryOptions();renderSettings()},err));unsubs.push(onSnapshot(query(collection(db,'cajas'),limit(1000)),s=>{cashSessions=s.docs.map(d=>({id:d.id,...d.data()}));renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'productos'),limit(2000)),s=>{products=s.docs.map(d=>({id:d.id,...d.data()}));renderInventory();renderSaleInterfaces()},err));unsubs.push(onSnapshot(query(collection(db,'ventas'),limit(1500)),s=>{sales=s.docs.map(d=>({id:d.id,...d.data()}));renderSales()},err));unsubs.push(onSnapshot(query(collection(db,'ajustesStock'),limit(1000)),s=>{stockAdjustments=s.docs.map(d=>({id:d.id,...d.data()}));renderStockAdjustments()},err));}
+function listen(){unsubs.forEach(f=>f());unsubs=[];unsubs.push(onSnapshot(query(collection(db,'ordenes'),limit(1000)),s=>{orders=s.docs.map(d=>({id:d.id,...d.data()}));renderOrders();if(detailId)renderDetail();if(detailClientId&&clientDrawerMode==='view')renderClientDetail()},err));unsubs.push(onSnapshot(query(collection(db,'clientes'),limit(1500)),s=>{clients=s.docs.map(d=>({id:d.id,...d.data()}));renderClients();if(detailId)renderDetail();if(detailClientId&&clientDrawerMode==='view')renderClientDetail()},err));unsubs.push(onSnapshot(refs.cash,s=>{cash=s.exists()?s.data():null;renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'movimientos'),limit(5000)),s=>{movements=s.docs.map(d=>({id:d.id,...d.data()}));renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'catalogos'),limit(1500)),s=>{catalog=s.docs.map(d=>({id:d.id,...d.data()}));drawAccessoryOptions();renderSettings()},err));unsubs.push(onSnapshot(query(collection(db,'cajas'),limit(1000)),s=>{cashSessions=s.docs.map(d=>({id:d.id,...d.data()}));renderCash()},err));unsubs.push(onSnapshot(query(collection(db,'productos'),limit(2000)),s=>{products=s.docs.map(d=>({id:d.id,...d.data()}));renderInventory();renderSaleInterfaces()},err));unsubs.push(onSnapshot(query(collection(db,'ventas'),limit(1500)),s=>{sales=s.docs.map(d=>({id:d.id,...d.data()}));renderSales()},err));unsubs.push(onSnapshot(query(collection(db,'ajustesStock'),limit(1000)),s=>{stockAdjustments=s.docs.map(d=>({id:d.id,...d.data()}));renderStockAdjustments()},err));}
 $('today').textContent=new Date().toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'});
 $('login-form').onsubmit=e=>{e.preventDefault();$('login-error').textContent='';signInWithEmailAndPassword(auth,$('login-email').value.trim(),$('login-pass').value).catch(e=>$('login-error').textContent='No se pudo ingresar. Verificá usuario, contraseña y Authentication.')};
-onAuthStateChanged(auth,u=>{user=u;if(u){$('login').classList.add('hidden');$('app').classList.remove('hidden');$('user-name').textContent=u.email;$('user-dot').textContent=(u.email||'S')[0].toUpperCase();listen()}else{unsubs.forEach(f=>f());unsubs=[];orders=[];clients=[];movements=[];catalog=[];cashSessions=[];products=[];sales=[];stockAdjustments=[];saleCart=[];cash=null;settingsType='accesorio';settingsSearch='';settingsShowInactive=false;$('login').classList.remove('hidden');$('app').classList.add('hidden');closeDrawer()}});
+onAuthStateChanged(auth,u=>{user=u;if(u){$('login').classList.add('hidden');$('app').classList.remove('hidden');$('user-name').textContent=u.email;$('user-dot').textContent=(u.email||'S')[0].toUpperCase();listen()}else{unsubs.forEach(f=>f());unsubs=[];orders=[];clients=[];movements=[];catalog=[];cashSessions=[];products=[];sales=[];stockAdjustments=[];saleCart=[];cash=null;settingsType='accesorio';settingsSearch='';settingsShowInactive=false;detailClientId=null;clientDrawerMode='view';$('login').classList.remove('hidden');$('app').classList.add('hidden');closeDrawer()}});
 $('logout').onclick=()=>signOut(auth).catch(err);
-document.querySelectorAll('.rail-nav').forEach(b=>b.onclick=()=>nav(b.dataset.page));document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{area=b.dataset.area;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));renderOrders()});
+document.querySelectorAll('.rail-nav').forEach(b=>b.onclick=()=>nav(b.dataset.page));document.querySelectorAll('#page-ordenes .section-tabs .tab').forEach(b=>b.onclick=()=>{area=b.dataset.area;document.querySelectorAll('#page-ordenes .section-tabs .tab').forEach(x=>x.classList.toggle('active',x===b));renderOrders()});
 $('search-orders').oninput=renderOrders;$('search-orders').onkeydown=e=>{if(e.key!=='Enter')return;const v=$('search-orders').value.trim();const target=orders.find(o=>o.numero===v||o.numero===v.padStart(6,'0'));if(target){e.preventDefault();showOrder(target.id)}};$('filter-status').onchange=renderOrders;$('search-clients').oninput=renderClients;$('new-order').onclick=()=>{selectedClient=null;orderDraft=null;newOrder()};$('new-client-main').onclick=()=>newClient();$('drawer-close').onclick=closeDrawer;$('overlay').onclick=closeDrawer;$('refresh').onclick=()=>{renderOrders();toast('La lista se actualiza automáticamente desde Firebase')};$('open-cash').onclick=openCash;$('close-cash').onclick=closeCash;
 $('cash-form').onsubmit=e=>{e.preventDefault();manualMovement({tipo:$('cash-type').value,concepto:$('cash-concept').value.trim(),monto:$('cash-value').value,metodo:$('cash-method').value}).then(ok=>{if(ok)$('cash-form').reset()})};$('sale-form').onsubmit=e=>{e.preventDefault();manualMovement({tipo:'ingreso',concepto:'Venta: '+$('sale-description').value.trim(),monto:$('sale-total').value,metodo:$('sale-method').value,origen:'venta_manual'}).then(ok=>{if(ok)$('sale-form').reset()})};
 

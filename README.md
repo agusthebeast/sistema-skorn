@@ -1,3 +1,30 @@
+# SYX Órdenes de Trabajo — V7
+
+Actualización sobre la V6: íconos Material Symbols seleccionados y nueva ficha de clientes con edición e historial.
+
+## Cambios principales
+- Íconos Material Symbols Outlined: Órdenes y órdenes abiertas (format_list_bulleted), Caja/Caja actual/Ventas (point_of_sale), Estadísticas (bar_chart), Inventario (inventory), Clientes (person_search), Configuración (settings), Historial (history), botones Ver (visibility).
+- Agenda de clientes: botón **Ver** en cada fila de búsqueda, ficha completa, edición de nombre, teléfono, correo, dirección y observaciones; DNI solo se puede completar en una ficha provisional sin DNI.
+- Historial de todas las órdenes de un cliente, incluidas importadas y entregadas, enlazadas por ID o DNI; abre el detalle de cada orden. Nunca se asocia por nombre solamente.
+- Se conserva el resto del sistema y las importaciones, así como las reglas anteriores.
+- No subas los JSON de contactos privados a GitHub.
+
+## Instalación
+1. Descomprimir el ZIP y subir **todos los archivos** a `agusthebeast/sistema-skorn`, reemplazando la versión anterior.
+2. En GitHub Codespaces:
+
+```bash
+git pull origin main
+firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499
+```
+
+3. Abrir `https://ordenes-trabajo-a8499.web.app`, iniciar sesión y recargar con Ctrl+Shift+R.
+4. Ir a Clientes, buscar una persona, elegir **Ver**, revisar órdenes y usar **Editar datos**.
+
+**Precaución:** es una actualización local del código, no se desplegó automáticamente a Firebase. Probá con un cliente de prueba antes de modificar datos reales.
+
+---
+
 # SYX | Órdenes de Trabajo — V5 (ficha de cliente y configuración)
 
 **Firebase exclusivo:** `ordenes-trabajo-a8499`  
