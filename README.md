@@ -102,3 +102,20 @@ node --test tests/*.mjs
 ```
 
 36 pruebas locales de lógica, impresión, cobros, migración y Configuración pasadas. Falta validar la operación conectada a tu cuenta Firebase desde el navegador.
+
+
+## V6 — Importación de Agenda sin duplicados (30/10/2026)
+
+**Archivo privado:** `SYX_Agenda_30-10-2026_PARA_IMPORTAR_PRIVADO.json` se entrega **por separado**. Contiene datos personales reales de 905 personas. **Nunca se debe cargar a GitHub, Hosting ni una carpeta pública**.
+
+1. Subir únicamente el contenido de **SYX_Sistema_V6_Importacion_Agenda_GitHub.zip** a `agusthebeast/sistema-skorn`.
+2. Publicar el nuevo frontend y las reglas: `firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499`.
+3. Iniciar sesión y abrir **Clientes → Importar agenda** (o `/importar-agenda.html`).
+4. Seleccionar el JSON privado adjunto, o cualquier CSV de Gestioo con las columnas del exportador. El Excel `.xlsx` original se ha convertido a JSON para esta importación, sin alterar los datos de contacto. No seleccionar el XLSX en la página: el navegador requiere el JSON convertido o CSV.
+5. Pulsar **Verificar sin modificar nada**. La pantalla compara **todos los DNI normalizados**, no solo los identificadores de documento, con los registros **reales** en Firebase.
+6. Los clientes ya existentes **se omiten sin sobrescribirlos**. Si hay fichas sin DNI que coinciden por nombre, el administrador debe compararlas visualmente y confirmar cada vinculación. Las fichas no confirmadas **se mantienen tal cual**, sin crearse un cliente nuevo con ese DNI.
+7. Escribir `IMPORTAR` y confirmar. Las transacciones evitan reescribir un documento que ya exista, y los clientes nuevos se crean con documento de ID DNI.
+
+**Validación offline de este lote:** 905 filas, todos los DNI normalizados únicos. Frente al lote de migración anterior con 899 DNI y 10 fichas provisionales: 899 DNI ya existentes y 6 personas que coinciden por nombre con fichas provisionales sin DNI; no se requiere crear registros nuevos si se migró ese lote. **Esta predicción no es una lectura del Firebase en vivo.** Si no se ejecutó la migración anterior, los números reales serán distintos.
+
+**Límites:** las coincidencias por nombre se consideran indicios, **no pruebas de identidad**. No se vinculan sin confirmación. Los registros con DNI inválidos, duplicados dentro del archivo o en conflicto se excluyen y se informan para revisión. Se protege contra cargas repetidas y no se eliminan personas ni se modifican órdenes. No sustituye una copia de seguridad ni una validación con Firebase Emulator Suite antes de uso productivo.

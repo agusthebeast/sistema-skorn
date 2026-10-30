@@ -38,9 +38,23 @@ service cloud.firestore {
            && request.resource.data.importadoSinDni == true)
         );
       allow update: if signed()
-        && request.resource.data.dni == resource.data.dni
         && request.resource.data.nombre is string
-        && request.resource.data.nombre.size() > 0;
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 180
+        && (
+          // Modificaciones normales conservan el DNI original.
+          request.resource.data.dni == resource.data.dni
+          ||
+          // Permite completar un registro provisional sin romper sus órdenes.
+          (clienteId.matches('sin-dni_[a-z0-9_-]+')
+            && resource.data.dni == ''
+            && resource.data.importadoSinDni == true
+            && request.resource.data.dni.matches('[0-9]{6,11}')
+            && request.resource.data.importadoSinDni == false
+            && request.resource.data.dniVinculadoPor == request.auth.token.email
+            && !exists(/databases/$(database)/documents/clientes/$(request.resource.data.dni))
+          )
+        );
       allow delete: if false;
     }
     match /equipos/{equipoId} {
