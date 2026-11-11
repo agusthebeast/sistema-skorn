@@ -174,7 +174,23 @@ service cloud.firestore {
     }
     match /config/{id} {
       allow read: if signed();
-      allow create, update: if signed() && id in ['cajaActual','contadores'];
+      allow create, update: if signed() && (id in ['cajaActual','contadores'] ||
+        (id == 'impresion'
+          && request.resource.data.anchoMm == 80
+          && request.resource.data.mostrarSku is bool
+          && request.resource.data.mostrarEmpleado is bool
+          && request.resource.data.mostrarCodigoBarras is bool
+          && request.resource.data.autoImprimir is bool
+          && request.resource.data.direccion is string
+          && request.resource.data.direccion.size() > 0
+          && request.resource.data.direccion.size() <= 160
+          && request.resource.data.whatsapp is string
+          && request.resource.data.whatsapp.size() > 0
+          && request.resource.data.whatsapp.size() <= 50
+          && request.resource.data.mensajeFinal is string
+          && request.resource.data.mensajeFinal.size() > 0
+          && request.resource.data.mensajeFinal.size() <= 120
+          && request.resource.data.updatedBy == request.auth.token.email));
       allow delete: if false;
     }
     match /{document=**} { allow read, write: if false; }

@@ -1,148 +1,93 @@
-# SYX Órdenes de Trabajo — V7
+# SYX | Órdenes de Trabajo — V8
 
-Actualización sobre la V6: íconos Material Symbols seleccionados y nueva ficha de clientes con edición e historial.
+**Proyecto Firebase:** `ordenes-trabajo-a8499`  
+**Repositorio de destino:** `agusthebeast/sistema-skorn`  
+**Hosting previsto:** https://ordenes-trabajo-a8499.web.app  
+**Actualización:** sobre V7 sin eliminar colecciones o datos anteriores.
 
-## Cambios principales
-- Íconos Material Symbols Outlined: Órdenes y órdenes abiertas (format_list_bulleted), Caja/Caja actual/Ventas (point_of_sale), Estadísticas (bar_chart), Inventario (inventory), Clientes (person_search), Configuración (settings), Historial (history), botones Ver (visibility).
-- Agenda de clientes: botón **Ver** en cada fila de búsqueda, ficha completa, edición de nombre, teléfono, correo, dirección y observaciones; DNI solo se puede completar en una ficha provisional sin DNI.
-- Historial de todas las órdenes de un cliente, incluidas importadas y entregadas, enlazadas por ID o DNI; abre el detalle de cada orden. Nunca se asocia por nombre solamente.
-- Se conserva el resto del sistema y las importaciones, así como las reglas anteriores.
-- No subas los JSON de contactos privados a GitHub.
+## Funciones incorporadas en V8
 
-## Instalación
-1. Descomprimir el ZIP y subir **todos los archivos** a `agusthebeast/sistema-skorn`, reemplazando la versión anterior.
-2. En GitHub Codespaces:
+### 1. LISTADO de órdenes abiertas
 
-```bash
-git pull origin main
-firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499
-```
+- Botón **LISTADO** al lado del contador **Órdenes abiertas**.
+- Generación de **PDF descargable real A4 horizontal**, sin dependencias externas y sin tener que usar «Guardar como PDF».
+- Descarga `SYX_Listado_Ordenes_AAAA-MM-DD.pdf` con encabezado SYX, fecha, agrupación **Entrada / Reparación / Salida**, cantidad por área y número de páginas.
+- Columnas: número, fecha, prioridad, estado, serie, marca, modelo, cliente, responsable y presupuesto.
+- Las órdenes **Entregado** se excluyen aun si conservan el área Salida. Salida puede contener reparadas o sin solución que todavía no se retiraron.
+- Selector para exportar **todas las abiertas**, solo el **área activa** o los **filtros de la pantalla**.
+- Antes de descargar, se lee de **Firebase servidor la colección completa** de órdenes, sin el límite de la vista de la pantalla.
 
-3. Abrir `https://ordenes-trabajo-a8499.web.app`, iniciar sesión y recargar con Ctrl+Shift+R.
-4. Ir a Clientes, buscar una persona, elegir **Ver**, revisar órdenes y usar **Editar datos**.
+### 2. Tickets internos para impresora térmica de 80 mm
 
-**Precaución:** es una actualización local del código, no se desplegó automáticamente a Firebase. Probá con un cliente de prueba antes de modificar datos reales.
+- **Punto de Venta** (venta con inventario): detalle de cada producto, SKU, cantidad, precio original de la operación, total y pagos combinados. **No se asocian clientes.**
+- **Ingreso manual** (Caja y Venta excepcional): concepto, monto y medio de pago. No descuenta stock.
+- **Egreso manual:** concepto, monto y medio utilizado.
+- **Cierre de Caja:** apertura/cierre, responsables, fondo inicial, ingresos y egresos, efectivo esperado, contado, diferencia y desglose digital (transferencia/QR/Posnet).
+- Comprobante interno, **no válido como factura fiscal**. No integra ARCA.
+- **Numeración única nueva**, compartida entre ventas, movimientos manuales y cierres (campo `numeroComprobante` de 8 dígitos), asignada en la transacción que crea el registro. No cambia el número ni el ID de las órdenes de trabajo.
+- Los registros antiguos sin correlativo conservan su ID y reciben un código de búsqueda derivado del ID solo para su visualización; no se modifica la base de datos al imprimirlos.
+- Código de barras Code 39 numérico, imprimible y escaneable. Valor numérico de los comprobantes nuevos: `numeroComprobante`.
 
----
+### 3. Vista de comprobantes y reimpresión
 
-# SYX | Órdenes de Trabajo — V5 (ficha de cliente y configuración)
+- Después de confirmar una operación se presenta la vista del ticket con **Imprimir** o **Finalizar sin imprimir**.
+- **Historial de Ventas:** buscar por número, fecha, SKU, nombre de producto o empleado; botones **Ver** y **Reimprimir**.
+- **Caja actual e Historial de cajas:** botón **Ver** de cada movimiento, con impresión o reimpresión. Los cobros de órdenes conservan su comprobante de retiro A4 original.
+- **Cajas cerradas:** botón **Cierre** directamente desde el historial; también desde el detalle del turno.
+- La impresión y reimpresión **no escriben en Firebase**, no generan un nuevo cobro ni descuentan stock.
+- Detalles de venta conservados dentro de `ventas.items`: el ticket histórico no consulta precios ni nombres actualizados en inventario.
 
-**Firebase exclusivo:** `ordenes-trabajo-a8499`  
-**Repositorio:** `agusthebeast/sistema-skorn`  
-**Sitio:** `https://ordenes-trabajo-a8499.web.app`
+### 4. Configuración > Impresión
 
-Esta actualización conserva Caja, historial de cierres, estadísticas, inventario, ventas, órdenes de taller, etiquetas con código de barras y constancias de retiro de V3. Agrega una **pantalla de importación privada** y permite ver y editar los estados originales de Gestioo, sin cambiarlos accidentalmente a «Sin estado».
+- Configuración centralizada en `config/impresion` en Firestore, con reglas de lectura y escritura para personal autenticado y límites de campos.
+- Editar dirección del local, WhatsApp, mensaje final, mostrar SKU, mostrar responsable, mostrar barras y abrir impresión automáticamente.
+- Ancho fijo **80 mm**; el LISTADO continúa **A4 horizontal**.
+- Por defecto la impresión automática está desactivada. El navegador puede bloquear ventanas automáticas después de guardar; siempre queda disponible el botón manual.
+- Para la impresora, **instalar el controlador**, elegir papel térmico de **80 mm** en las preferencias del navegador/driver, márgenes 0 o mínimos y desactivar encabezados y pies del navegador. La longitud del ticket crece con los productos.
 
-## Novedades de la V5 (30/10/2026)
+## Cómo actualizar desde V7 (sin borrar datos)
 
-### Ver orden → Datos completos del cliente
+1. **Conservar una copia del repositorio actual**, idealmente crear una rama o etiqueta V7.
+2. Descomprimir el ZIP V8, copiar su contenido a la raíz de `agusthebeast/sistema-skorn` reemplazando archivos con el mismo nombre. Conservar los archivos ocultos `.firebaserc` y `.gitignore`.
+3. Desde GitHub Codespaces, después de subir los cambios:
 
-- En **Ver / Imprimir** se muestra, de forma visible y sin cambiar de pantalla, una tarjeta con **nombre y apellido, DNI, teléfono/WhatsApp, correo electrónico y dirección**.
-- Si el registro en la agenda incluye observaciones, se muestran también.
-- Los datos se toman de **la ficha actualizada de `clientes`** en Firestore usando `clienteId`. Si esa ficha aún no existe, se usan los datos históricos disponibles dentro de la orden; los campos faltantes dicen *Sin registrar*.
-- Los clientes migrados con datos por revisar siguen identificados. No se inventan DNI, teléfonos ni correos.
-- Los botones **Imprimir orden** e **Imprimir retiro** también toman los datos vigentes de contacto cuando están disponibles.
+   ```bash
+   git pull origin main
+   firebase use ordenes-trabajo-a8499
+   firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499
+   ```
 
-### Configuración → Accesorios y Fallas informadas
+   El despliegue **solo** actualiza los archivos de Hosting y las reglas de Firestore del proyecto especificado. No modifica `syx-gestion` ni borra documentos existentes.
 
-- Nueva sección **Configuración** (ícono de engranaje del menú izquierdo) con pestañas **Accesorios** y **Fallas informadas**.
-- Podés **agregar opciones** y se guardan en la colección `catalogos`.
-- Podés **quitar una opción** de la lista usada para órdenes nuevas. Se marca `activo:false` en Firestore: **no se borra ni modifica ninguna orden histórica**. Con **Mostrar también las ocultas**, se puede **Restaurar**.
-- El mismo catálogo se usa en **Crear orden** y en el selector de **Falla informada** al **editar una orden**. Las fallas históricas se siguen mostrando en su propia orden aunque se hayan ocultado del selector general.
-- Los accesorios seleccionados históricamente tampoco se pierden ni se quitan de órdenes antiguas.
+4. Abrir https://ordenes-trabajo-a8499.web.app, recargar con `Ctrl+Shift+R`.
+5. Primero probar con una **venta pequeña de prueba**, un **ingreso manual**, un **egreso manual**, un **cierre de Caja** y una exportación LISTADO. Confirmar que cada movimiento aparece una sola vez y que inventario se descuenta una sola vez.
+6. Para imprimir, verificar la configuración del driver 80 mm. Si aparecen ventanas bloqueadas, permitir ventanas emergentes para `ordenes-trabajo-a8499.web.app`.
 
-### Instalación sin pérdida de datos
+### Datos que permanecen intactos
 
-1. Descomprimí **este ZIP de código** y subí su contenido a la raíz de `agusthebeast/sistema-skorn`, reemplazando archivos anteriores. Conservá los archivos ocultos `.firebaserc` y `.gitignore`.
-2. En GitHub Codespaces abrí una terminal y ejecutá:
+No se eliminan ni transforman las colecciones existentes `ordenes`, `clientes`, `equipos`, `cajas`, `movimientos`, `productos`, `ventas`, `ajustesStock` y `catalogos`. La nueva versión solo agrega a documentos futuros `numeroComprobante`, añade el contador `config/contadores.comprobantes` y crea (si el usuario guarda la configuración) `config/impresion`.
 
-```bash
-git pull origin main
-firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499
-```
+No es necesario volver a importar clientes, modelos, órdenes ni inventario. **No subir CSV/JSON privados a GitHub.**
 
-3. Abrí `https://ordenes-trabajo-a8499.web.app` y recargá con `Ctrl + Shift + R`.
-4. Abrí una orden existente para comprobar los contactos. Entrá en Configuración, creá una falla de prueba, quitála y restaurala.
+### Pruebas incluidas
 
-**Los documentos de órdenes, clientes, equipos, Caja, inventario y ventas existentes no se borran ni se migran de nuevo.** El despliegue sustituye únicamente el frontend y las reglas. No es necesario repetir la importación de los 909 clientes o las 152 órdenes si ya se completó.
-
-**Permisos:** la versión mantiene el esquema de la V4: toda cuenta autenticada puede modificar el catálogo. Para reservar Configuración exclusivamente a administradores habría que incorporar roles y reglas adicionales.
-
-**Pruebas locales:** 36 tests unitarios aprobados, incluidos 7 tests nuevos de opciones visibles/ocultas, clientes históricos y datos actualizados. También se verificó la presentación de Configuración en desktop y móvil. El proyecto no se publicó ni se probó conectado a tu Firebase desde este entorno.
-
----
-
-## Guía histórica de migración V4 (solo si todavía no migraste)
-
-## Dos archivos ZIP separados (muy importante)
-
-**1. `SYX_Sistema_V5_Clientes_Configuracion_GitHub.zip`**: código del sistema y reglas de Firestore. **Este es el único ZIP cuyo contenido se debe subir al repositorio GitHub.** No incluye datos personales reales.
-
-**2. `SYX_Datos_Privados_Migracion_Gestioo.zip`**: contiene el JSON con la agenda y las órdenes reales y archivos CSV para verificación. **NO SUBIR ESTE ARCHIVO NI SU CONTENIDO A GITHUB, GITHUB CODESPACES NI A FIREBASE HOSTING.** Guardarlo localmente y cargar el JSON en el navegador desde la pantalla de importación. Los datos solo se escriben en Firestore después de la confirmación.
-
-## Qué se extrae del archivo de Gestioo
-
-- **899 contactos** de la agenda, deduplicados por DNI. El contacto adicional exportado el 28/10/2026 ya estaba dentro de los 899, así que no se duplica.
-- **10 clientes provisionales sin DNI**: seis nombres faltantes en la agenda y cuatro nombres ambiguos que coinciden con más de un DNI. Están marcados para revisión, sin asignarles DNI inventados.
-- **152 órdenes** del PDF, con número original (con ceros a la izquierda), fecha, estado, área, responsable, marca, modelo, cliente y datos originales del reporte.
-- **152 registros de equipos** vinculados a las órdenes, uno por orden porque el PDF no aporta números de serie verificables («Genérico»). Se preserva ese texto como dato original, pero no se asume que sea una serie real.
-- **174 entradas únicas de catálogo** (marcas y modelos). Se normaliza solo la presentación de marcas conocidas y se corrigen dos modelos partidos entre líneas por el PDF; se preserva el valor original también.
-- **No se inventan** fallas, presupuestos, estados físicos ni accesorios que el informe no incluya. Las columnas TOTAL/ADELANTO están en cero en todas las filas, pero no se interpretan como un presupuesto aprobado de $0.
-- **Sin movimientos de Caja ni cobros históricos** como consecuencia de importar.
-
-### Diferencia entre el resumen y las filas reales
-
-El PDF declara **Entrada 42, Reparación 28 y Salida 83 (153 en total)**, pero contiene filas legibles **Entrada 42, Reparación 27 y Salida 83 (152 en total)**. No se inventa la posible orden faltante: habrá que recuperar esa fila de Gestioo con otro listado si existe.
-
-## Cómo actualizar el sitio
-
-1. Descargar y descomprimir el ZIP **de código**.
-2. Subir todos sus archivos a la raíz del repositorio `agusthebeast/sistema-skorn`, reemplazando los anteriores. **No subir el ZIP de datos privados.**
-3. Abrir Codespaces para `sistema-skorn` y ejecutar:
-
-```bash
-git pull origin main
-firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499
-```
-
-4. Abrir `https://ordenes-trabajo-a8499.web.app/importar.html` y autenticar con el usuario autorizado de Firebase.
-5. Descomprimir el ZIP **privado** en tu computadora. En la pantalla, **seleccionar** `SYX_Datos_Migracion_PRIVADOS_2026-10-28.json` desde el navegador.
-6. Presionar **Verificar en Firebase**. La revisión comprueba que no existan números de órdenes utilizados en documentos distintos y muestra cuántos registros son nuevos.
-7. Escribir **IMPORTAR**, revisar el mensaje de confirmación y ejecutar la importación. **No cerrar la pestaña hasta ver «Importación finalizada»**; ante una interrupción, se puede volver a verificar y reanudar sin sobrescribir los documentos existentes.
-8. Regresar al panel Taller: comprobar las órdenes `001069`, `001060` y otras conocidas, sus marcas, modelos, fechas, responsables y estados. Revisar que los clientes estén en Agenda y que los estados «Reparado», «Depósito», «Esperando respuesta», etc. estén en los filtros.
-9. Revisar el CSV de clientes a identificar antes de decidir unificar o completar sus datos.
-
-La importación eleva el contador de nuevas órdenes al menos a **1069** para que las próximas sigan desde **1070** o desde el número ya existente si fuese mayor. **No dar de alta nuevas órdenes durante el proceso de importación.**
-
-## Reglas de seguridad
-
-- V4 y V5 actualizan `firestore.rules` para permitir contactos importados **sin DNI real**, con ID interno `sin-dni_*` claramente diferenciado. La versión anterior solo permitía clientes con DNI.
-- El importador web requiere Firebase Authentication. No contiene ni distribuye los datos personales: estos se cargan de un archivo local elegido expresamente por el operador.
-- La app todavía no tiene permisos por roles: **quien tenga cuenta autenticada de Firebase puede realizar operaciones de importación según las reglas actuales**. Usá solamente cuentas de confianza; un endurecimiento con roles de administrador es recomendable para uso productivo.
-- Para evitar pérdidas accidentales, no se borra ni reemplaza un cliente, una orden o un equipo existentes. Las órdenes importadas usan documentos con IDs determinísticos y el importador puede reanudarse. Un conflicto de numeración preexistente **bloquea la importación** en la verificación previa.
-- **No fue ejecutada una importación real en Firebase desde este entorno**. La primera carga debe probarse desde la pantalla habilitada después de publicar la V4.
-
-## Verificación técnica
+En una terminal con Node 18+:
 
 ```bash
 node --test tests/*.mjs
 ```
 
-36 pruebas locales de lógica, impresión, cobros, migración y Configuración pasadas. Falta validar la operación conectada a tu cuenta Firebase desde el navegador.
+Se ejecutaron **57 pruebas automáticas locales** sobre catálogo, clientes, migración, Caja, PDF y tickets. Además, se verificó la navegación visual con un simulador local de Firebase, sin tocar la base de datos real; el PDF de 149 órdenes de ejemplo ocupó cuatro páginas A4 horizontales. Las integraciones con el proyecto Firebase de producción y la impresora térmica física **aún deben probarse en el local**.
 
+## Estructura
 
-## V6 — Importación de Agenda sin duplicados (30/10/2026)
+- `public/index.html` — pantalla y navegación V8.
+- `public/css/style.css` — estilos de la app y previsualización del ticket.
+- `public/js/app.js` — conexión entre interfaz, Caja, ventas y órdenes.
+- `public/js/listado-pdf.js` — PDF A4 real (sin librerías CDN).
+- `public/js/receipts.js` — comprobantes térmicos de 80 mm.
+- `public/js/print.js` — hojas A4 originales de ingreso y retiro y barras numéricas Code 39.
+- `firestore.rules` — reglas con autorización para `config/impresion`.
+- `tests/` — pruebas de regresión y nuevas pruebas V8.
 
-**Archivo privado:** `SYX_Agenda_30-10-2026_PARA_IMPORTAR_PRIVADO.json` se entrega **por separado**. Contiene datos personales reales de 905 personas. **Nunca se debe cargar a GitHub, Hosting ni una carpeta pública**.
-
-1. Subir únicamente el contenido de **SYX_Sistema_V6_Importacion_Agenda_GitHub.zip** a `agusthebeast/sistema-skorn`.
-2. Publicar el nuevo frontend y las reglas: `firebase deploy --only hosting,firestore:rules --project ordenes-trabajo-a8499`.
-3. Iniciar sesión y abrir **Clientes → Importar agenda** (o `/importar-agenda.html`).
-4. Seleccionar el JSON privado adjunto, o cualquier CSV de Gestioo con las columnas del exportador. El Excel `.xlsx` original se ha convertido a JSON para esta importación, sin alterar los datos de contacto. No seleccionar el XLSX en la página: el navegador requiere el JSON convertido o CSV.
-5. Pulsar **Verificar sin modificar nada**. La pantalla compara **todos los DNI normalizados**, no solo los identificadores de documento, con los registros **reales** en Firebase.
-6. Los clientes ya existentes **se omiten sin sobrescribirlos**. Si hay fichas sin DNI que coinciden por nombre, el administrador debe compararlas visualmente y confirmar cada vinculación. Las fichas no confirmadas **se mantienen tal cual**, sin crearse un cliente nuevo con ese DNI.
-7. Escribir `IMPORTAR` y confirmar. Las transacciones evitan reescribir un documento que ya exista, y los clientes nuevos se crean con documento de ID DNI.
-
-**Validación offline de este lote:** 905 filas, todos los DNI normalizados únicos. Frente al lote de migración anterior con 899 DNI y 10 fichas provisionales: 899 DNI ya existentes y 6 personas que coinciden por nombre con fichas provisionales sin DNI; no se requiere crear registros nuevos si se migró ese lote. **Esta predicción no es una lectura del Firebase en vivo.** Si no se ejecutó la migración anterior, los números reales serán distintos.
-
-**Límites:** las coincidencias por nombre se consideran indicios, **no pruebas de identidad**. No se vinculan sin confirmación. Los registros con DNI inválidos, duplicados dentro del archivo o en conflicto se excluyen y se informan para revisión. Se protege contra cargas repetidas y no se eliminan personas ni se modifican órdenes. No sustituye una copia de seguridad ni una validación con Firebase Emulator Suite antes de uso productivo.
+**Esta versión se entrega en un ZIP para que la publiques cuando lo decidas; no se hicieron cambios en tus sistemas desplegados durante su creación.**
